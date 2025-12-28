@@ -1,0 +1,121 @@
+[
+  {
+    "id": "paimon",
+    "name": "Paimon",
+    "file": "paimon_1.wav",
+    "text": "Barbara!? WHERE ARE YOU BARBARA!!!???",
+    "gender": "female"
+  },
+  {
+    "id": "paimon",
+    "name": "Paimon",
+    "file": "paimon_2.wav",
+    "text": "Who knows \u2014 maybe he's our biggest fan! Hee-hee.",
+    "gender": "female"
+  },
+  {
+    "id": "zhongli",
+    "name": "Zhongli",
+    "file": "zhongli_1.wav",
+    "text": "Dihua Marsh used to be full of Glaze Lilies. It is a sort of joyful flower that listens to human song.",
+    "gender": "male"
+  },
+  {
+    "id": "zhongli",
+    "name": "Zhongli",
+    "file": "zhongli_2.wav",
+    "text": "Nothing can be accomplished without rules or standards. No matter if it is mortals or adepti, everyone has their place. This rule is what keeps Liyue in peace.",
+    "gender": "male"
+  },
+  {
+    "id": "nahida",
+    "name": "Nahida",
+    "file": "nahida_1.wav",
+    "text": "Sumeru's desert looks more desolate than the rainforest, but it's also home to an ancient civilization, and supports its own stable ecosystem. One day, when it finally stops arguing with the rainforest, I'm sure that flowers will blossom there, the likes of which I've never seen before.",
+    "gender": "female"
+  },
+  {
+    "id": "nahida",
+    "name": "Nahida",
+    "file": "nahida_2.wav",
+    "text": "If fate is the ultimate knowledge, then your future will be the ultimate fate.",
+    "gender": "female"
+  },
+  {
+    "id": "alhaitham",
+    "name": "Alhaitham",
+    "file": "alhaitham_1.wav",
+    "text": "Seeing people have a private conversation in a secluded place is even more common.",
+    "gender": "male"
+  },
+  {
+    "id": "alhaitham",
+    "name": "Alhaitham",
+    "file": "alhaitham_2.wav",
+    "text": "Well, I think that about sums it up.",
+    "gender": "male"
+  },
+  {
+    "id": "neuvillette",
+    "name": "Neuvillette",
+    "file": "neuvillette_1.wav",
+    "text": "So even Furina doesn't know the truth? You've never once let her in on the full plan?",
+    "gender": "male"
+  },
+  {
+    "id": "noelle",
+    "name": "Noelle",
+    "file": "noelle_1.wav",
+    "text": "Now then, if you wouldn't mind accompanying me to the Knights of Favonius, the registration process only requires\u2014",
+    "gender": "female"
+  },
+  {
+    "id": "noelle",
+    "name": "Noelle",
+    "file": "noelle_2.wav",
+    "text": "Okay, leave it to me! I'm ready.",
+    "gender": "female"
+  },
+  {
+    "id": "furina",
+    "name": "Furina",
+    "file": "furina_1.wav",
+    "text": "My help, hmm? Well, maybe you're forgetting that I'm no longer the mighty Hydro Archon. I don't even have a Vision, you know.",
+    "gender": "female"
+  },
+  {
+    "id": "cyno",
+    "name": "Cyno",
+    "file": "cyno_1.wav",
+    "text": "By the sounds of it... a resident of this village.",
+    "gender": "male"
+  },
+  {
+    "id": "cyno",
+    "name": "Cyno",
+    "file": "cyno_2.wav",
+    "text": "Thank you, but you've already done enough.",
+    "gender": "male"
+  },
+  {
+    "id": "tighnari",
+    "name": "Tighnari",
+    "file": "tighnari_1.wav",
+    "text": "I've heard about the Aranara for some time now, but I haven't personally seen any. Sometimes, I hear rustling sounds from the forest's depths, but they disappear when I go closer. That's a good thing, though. At least they know how to protect themselves, unlike those stupid adventurers whose first thought when they run into an Avidya Leopard is \"Ooh, maybe I'll form an inter-species friendship today.\"",
+    "gender": "male"
+  },
+  {
+    "id": "navia",
+    "name": "Navia",
+    "file": "navia_1.wav",
+    "text": "Maybe we can have this conversation again in a few decades, once I've done more for the town and the people.",
+    "gender": "female"
+  },
+  {
+    "id": "navia",
+    "name": "Navia",
+    "file": "navia_2.wav",
+    "text": "I'd like to try to hit him with my sword.",
+    "gender": "female"
+  }
+]

@@ -1,0 +1,23 @@
+# Build artifacts
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Release artifacts (keep source, not binaries)
+*.app
+Murmur-Release.zip
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Xcode
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout

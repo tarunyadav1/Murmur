@@ -1,0 +1,116 @@
+{
+  "voices": [
+    {
+      "id": "narrator_female",
+      "name": "Female Narrator",
+      "description": "Warm, professional female narrator",
+      "file": "narrator_female.wav",
+      "gender": "female",
+      "style": "narrator"
+    },
+    {
+      "id": "narrator_male",
+      "name": "Male Narrator",
+      "description": "Deep, distinguished male narrator",
+      "file": "narrator_male.wav",
+      "gender": "male",
+      "style": "narrator"
+    },
+    {
+      "id": "casual_female",
+      "name": "Casual Female",
+      "description": "Bright, friendly conversational voice",
+      "file": "casual_female.wav",
+      "gender": "female",
+      "style": "casual"
+    },
+    {
+      "id": "professional_male",
+      "name": "Professional Male",
+      "description": "Clear, confident business voice",
+      "file": "professional_male.wav",
+      "gender": "male",
+      "style": "professional"
+    },
+    {
+      "id": "paimon",
+      "name": "Paimon",
+      "description": "High-pitched, energetic fairy companion",
+      "file": "paimon_2.wav",
+      "gender": "female",
+      "style": "character"
+    },
+    {
+      "id": "zhongli",
+      "name": "Zhongli",
+      "description": "Deep, authoritative, wise gentleman",
+      "file": "zhongli_1.wav",
+      "gender": "male",
+      "style": "character"
+    },
+    {
+      "id": "nahida",
+      "name": "Nahida",
+      "description": "Soft, gentle, wise young voice",
+      "file": "nahida_1.wav",
+      "gender": "female",
+      "style": "character"
+    },
+    {
+      "id": "alhaitham",
+      "name": "Alhaitham",
+      "description": "Calm, intellectual, measured tone",
+      "file": "alhaitham_2.wav",
+      "gender": "male",
+      "style": "character"
+    },
+    {
+      "id": "neuvillette",
+      "name": "Neuvillette",
+      "description": "Formal, dignified, judicial voice",
+      "file": "neuvillette_1.wav",
+      "gender": "male",
+      "style": "character"
+    },
+    {
+      "id": "noelle",
+      "name": "Noelle",
+      "description": "Polite, helpful, earnest young woman",
+      "file": "noelle_1.wav",
+      "gender": "female",
+      "style": "character"
+    },
+    {
+      "id": "furina",
+      "name": "Furina",
+      "description": "Dramatic, theatrical, expressive diva",
+      "file": "furina_1.wav",
+      "gender": "female",
+      "style": "character"
+    },
+    {
+      "id": "cyno",
+      "name": "Cyno",
+      "description": "Serious, stoic warrior voice",
+      "file": "cyno_1.wav",
+      "gender": "male",
+      "style": "character"
+    },
+    {
+      "id": "tighnari",
+      "name": "Tighnari",
+      "description": "Sharp, knowledgeable forest ranger",
+      "file": "tighnari_1.wav",
+      "gender": "male",
+      "style": "character"
+    },
+    {
+      "id": "navia",
+      "name": "Navia",
+      "description": "Confident, warm leader voice",
+      "file": "navia_1.wav",
+      "gender": "female",
+      "style": "character"
+    }
+  ]
+}
