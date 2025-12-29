@@ -303,7 +303,7 @@ struct ContentView: View {
 
     private var statusText: String {
         if ttsService.isModelLoaded {
-            return "Ready (\(ttsService.selectedTier.displayName))"
+            return "Ready (Kokoro)"
         }
         if ttsService.isLoading { return "Connecting..." }
         return "Offline"
@@ -350,87 +350,33 @@ struct ContentView: View {
                     .fontWeight(.semibold)
                     .fontDesign(.rounded)
 
-                // Tier Selector (replaces Model Selector)
-                TierSelector(
-                    selectedTier: $ttsService.selectedTier,
-                    availableTiers: ttsService.availableTiers
-                )
-
-                // Voice Picker
-                VoiceSelector(
-                    selectedVoice: $selectedVoice,
+                // Kokoro Voice Selector
+                KokoroVoiceSelector(
+                    selectedVoiceId: $ttsService.selectedVoiceId,
+                    voices: ttsService.kokoroVoices,
                     searchText: $voiceSearchText
                 )
+
+                // Speed info
+                HStack(spacing: 8) {
+                    Image(systemName: "bolt.fill")
+                        .foregroundStyle(.yellow)
+                    Text("Kokoro 82M - ~7x faster than real-time on Apple Silicon")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(12)
+                .background(.yellow.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
 
                 Divider()
                     .padding(.vertical, 4)
 
-                // Style Presets (only for High Quality tier)
-                if ttsService.selectedTier.supportsEmotionControls {
-                    VoiceStylePresetSelector(voiceSettings: $voiceSettings)
-
-                    Divider()
-                        .padding(.vertical, 4)
-                }
-
                 // Fine-tune Controls
                 VStack(alignment: .leading, spacing: 16) {
-                    HStack {
-                        Text("Fine-Tune Controls")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .foregroundStyle(.secondary)
-
-                        Spacer()
-
-                        if voiceSettings.detectedPreset == .custom && ttsService.selectedTier.supportsEmotionControls {
-                            HStack(spacing: 4) {
-                                Image(systemName: "slider.horizontal.3")
-                                    .font(.caption2)
-                                Text("Custom")
-                                    .font(.caption)
-                            }
-                            .foregroundColor(.orange)
-                        }
-                    }
-
-                    // Emotion controls - only for High Quality tier
-                    if ttsService.selectedTier.supportsEmotionControls {
-                        ModernSlider(
-                            title: "Emotion / Energy",
-                            subtitle: "Softer ↔ Expressive",
-                            value: Binding(
-                                get: { voiceSettings.emotionEnergy },
-                                set: { voiceSettings.emotionEnergy = $0; voiceSettings.activePreset = nil }
-                            ),
-                            range: VoiceSettings.Ranges.emotionEnergy,
-                            format: "%.2f"
-                        )
-
-                        ModernSlider(
-                            title: "Voice Match",
-                            subtitle: "Natural ↔ Stylized",
-                            value: Binding(
-                                get: { voiceSettings.voiceMatchStrength },
-                                set: { voiceSettings.voiceMatchStrength = $0; voiceSettings.activePreset = nil }
-                            ),
-                            range: VoiceSettings.Ranges.voiceMatchStrength,
-                            format: "%.1f"
-                        )
-                    } else {
-                        // Show info for Fast/Normal tiers
-                        HStack(spacing: 8) {
-                            Image(systemName: "info.circle")
-                                .foregroundStyle(.blue)
-                            Text(ttsService.selectedTier == .fast
-                                ? "Fast tier uses Kokoro voices for instant generation"
-                                : "Normal tier supports paralinguistic tags like [laugh], [chuckle]")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(12)
-                        .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-                    }
+                    Text("Fine-Tune Controls")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.secondary)
 
                     ModernSlider(
                         title: "Pacing",
@@ -1215,93 +1161,130 @@ struct ModernSlider: View {
     }
 }
 
-// MARK: - Tier Selector
+// MARK: - Kokoro Voice Selector
 
-struct TierSelector: View {
-    @Binding var selectedTier: TTSTier
-    let availableTiers: [TTSTier]
+struct KokoroVoiceSelector: View {
+    @Binding var selectedVoiceId: String
+    let voices: [KokoroVoice]
+    @Binding var searchText: String
+
+    @State private var isExpanded = false
+
+    private var filteredVoices: [KokoroVoice] {
+        if searchText.isEmpty {
+            return voices
+        }
+        let query = searchText.lowercased()
+        return voices.filter {
+            $0.name.lowercased().contains(query) ||
+            $0.accent.lowercased().contains(query) ||
+            $0.gender.lowercased().contains(query) ||
+            $0.description.lowercased().contains(query)
+        }
+    }
+
+    private var selectedVoice: KokoroVoice? {
+        voices.first { $0.id == selectedVoiceId }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Voice Quality")
+            Text("Voice")
                 .font(.subheadline)
                 .fontWeight(.medium)
                 .foregroundStyle(.secondary)
 
-            if availableTiers.isEmpty {
-                // Loading state
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .scaleEffect(0.7)
-                    Text("Loading tiers...")
+            // Selected voice button
+            Button {
+                withAnimation(.spring(duration: 0.25, bounce: 0.2)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(selectedVoice?.name ?? "Select Voice")
+                            .foregroundStyle(.primary)
+                        if let voice = selectedVoice {
+                            Text("\(voice.gender.capitalized) • \(voice.accent)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.down")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                }
+                .padding(14)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(isExpanded ? Color.accentColor.opacity(0.5) : Color.secondary.opacity(0.2), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+
+            // Expanded list
+            if isExpanded {
+                VStack(spacing: 10) {
+                    // Search
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.tertiary)
+                            .font(.caption)
+                        TextField("Search voices...", text: $searchText)
+                            .textFieldStyle(.plain)
+                            .font(.subheadline)
+                    }
+                    .padding(10)
+                    .background(.background, in: RoundedRectangle(cornerRadius: 8))
+
+                    // Voice list
+                    ScrollView {
+                        VStack(spacing: 4) {
+                            ForEach(filteredVoices) { voice in
+                                Button {
+                                    selectedVoiceId = voice.id
+                                    withAnimation(.spring(duration: 0.2)) {
+                                        isExpanded = false
+                                        searchText = ""
+                                    }
+                                } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(voice.name)
+                                                .foregroundStyle(.primary)
+                                            Text("\(voice.gender.capitalized) • \(voice.accent)")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        if selectedVoiceId == voice.id {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .foregroundStyle(.tint)
+                                        }
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .padding(10)
+                                .background(
+                                    selectedVoiceId == voice.id
+                                        ? Color.accentColor.opacity(0.1)
+                                        : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 8)
+                                )
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 250)
                 }
                 .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-            } else {
-                // Tier toggle buttons - horizontal layout
-                HStack(spacing: 6) {
-                    ForEach(TTSTier.allCases) { tier in
-                        let isAvailable = availableTiers.contains(tier)
-                        let isSelected = selectedTier == tier
-
-                        Button {
-                            if isAvailable {
-                                withAnimation(.spring(duration: 0.2)) {
-                                    selectedTier = tier
-                                }
-                            }
-                        } label: {
-                            VStack(spacing: 6) {
-                                Image(systemName: tier.icon)
-                                    .font(.title3)
-                                    .foregroundStyle(isSelected ? AnyShapeStyle(.white) : (isAvailable ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary)))
-
-                                Text(tier.displayName)
-                                    .font(.caption)
-                                    .fontWeight(isSelected ? .semibold : .regular)
-                                    .foregroundStyle(isSelected ? AnyShapeStyle(.white) : (isAvailable ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary)))
-
-                                Text(tier.modelInfo)
-                                    .font(.caption2)
-                                    .foregroundStyle(isSelected ? .white.opacity(0.8) : .secondary)
-                            }
-                            .padding(.vertical, 12)
-                            .padding(.horizontal, 8)
-                            .frame(maxWidth: .infinity)
-                            .background(
-                                isSelected
-                                    ? Color.accentColor
-                                    : Color.secondary.opacity(0.08),
-                                in: RoundedRectangle(cornerRadius: 10)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .strokeBorder(
-                                        isSelected ? Color.clear : (isAvailable ? Color.secondary.opacity(0.2) : Color.clear),
-                                        lineWidth: 1
-                                    )
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .opacity(isAvailable ? 1 : 0.4)
-                        .disabled(!isAvailable)
-                        .help(isAvailable ? tier.description : "Tier not available - download required")
-                    }
-                }
-
-                // Description of selected tier
-                HStack(spacing: 8) {
-                    Image(systemName: "info.circle")
-                        .foregroundStyle(.secondary)
-                        .font(.caption)
-                    Text(selectedTier.description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.top, 4)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .transition(.asymmetric(
+                    insertion: .scale(scale: 0.95, anchor: .top).combined(with: .opacity),
+                    removal: .opacity
+                ))
             }
         }
     }

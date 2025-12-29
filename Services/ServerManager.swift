@@ -134,11 +134,30 @@ final class ServerManager: ObservableObject {
     // MARK: - Private Methods
 
     private func launchServer() async throws {
-        guard let pythonPath = pythonEnvironment.pythonPath else {
+        // Check for Kokoro environment first (for fast TTS), fall back to regular python-env
+        let appSupportDir = pythonEnvironment.serverDirectory.deletingLastPathComponent()
+        let kokoroEnvPath = appSupportDir.appendingPathComponent("kokoro-env/bin/python3").path
+        let regularPythonPath = pythonEnvironment.pythonPath
+
+        // Determine which python and server script to use
+        let pythonPath: String
+        let serverScriptName: String
+
+        if FileManager.default.fileExists(atPath: kokoroEnvPath) {
+            // Use Kokoro environment
+            pythonPath = kokoroEnvPath
+            serverScriptName = "kokoro_server.py"
+            logger.info("Using Kokoro environment for fast TTS")
+        } else if let regularPath = regularPythonPath {
+            // Fall back to regular Chatterbox server
+            pythonPath = regularPath
+            serverScriptName = "server.py"
+            logger.info("Using regular Python environment")
+        } else {
             throw ServerError.pythonNotConfigured
         }
 
-        let serverScript = pythonEnvironment.serverDirectory.appendingPathComponent("server.py")
+        let serverScript = pythonEnvironment.serverDirectory.appendingPathComponent(serverScriptName)
 
         guard FileManager.default.fileExists(atPath: serverScript.path) else {
             throw ServerError.serverScriptNotFound
@@ -155,10 +174,8 @@ final class ServerManager: ObservableObject {
         env["HOST"] = "127.0.0.1"
 
         // Ensure the venv's bin is in PATH
-        let venvBin = pythonEnvironment.serverDirectory
-            .deletingLastPathComponent()
-            .appendingPathComponent("python-env/bin").path
-        env["PATH"] = "\(venvBin):/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:" + (env["PATH"] ?? "")
+        let venvDir = URL(fileURLWithPath: pythonPath).deletingLastPathComponent().path
+        env["PATH"] = "\(venvDir):/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:" + (env["PATH"] ?? "")
 
         // Set PYTHONPATH to include the server directory
         env["PYTHONPATH"] = pythonEnvironment.serverDirectory.path
