@@ -302,7 +302,9 @@ struct ContentView: View {
     }
 
     private var statusText: String {
-        if ttsService.isModelLoaded { return "Ready" }
+        if ttsService.isModelLoaded {
+            return "Ready (\(ttsService.selectedTier.displayName))"
+        }
         if ttsService.isLoading { return "Connecting..." }
         return "Offline"
     }
@@ -348,6 +350,12 @@ struct ContentView: View {
                     .fontWeight(.semibold)
                     .fontDesign(.rounded)
 
+                // Tier Selector (replaces Model Selector)
+                TierSelector(
+                    selectedTier: $ttsService.selectedTier,
+                    availableTiers: ttsService.availableTiers
+                )
+
                 // Voice Picker
                 VoiceSelector(
                     selectedVoice: $selectedVoice,
@@ -357,13 +365,15 @@ struct ContentView: View {
                 Divider()
                     .padding(.vertical, 4)
 
-                // Style Presets
-                VoiceStylePresetSelector(voiceSettings: $voiceSettings)
+                // Style Presets (only for High Quality tier)
+                if ttsService.selectedTier.supportsEmotionControls {
+                    VoiceStylePresetSelector(voiceSettings: $voiceSettings)
 
-                Divider()
-                    .padding(.vertical, 4)
+                    Divider()
+                        .padding(.vertical, 4)
+                }
 
-                // Fine-tune Controls (always visible)
+                // Fine-tune Controls
                 VStack(alignment: .leading, spacing: 16) {
                     HStack {
                         Text("Fine-Tune Controls")
@@ -373,7 +383,7 @@ struct ContentView: View {
 
                         Spacer()
 
-                        if voiceSettings.detectedPreset == .custom {
+                        if voiceSettings.detectedPreset == .custom && ttsService.selectedTier.supportsEmotionControls {
                             HStack(spacing: 4) {
                                 Image(systemName: "slider.horizontal.3")
                                     .font(.caption2)
@@ -384,27 +394,43 @@ struct ContentView: View {
                         }
                     }
 
-                    ModernSlider(
-                        title: "Emotion / Energy",
-                        subtitle: "Softer ↔ Expressive",
-                        value: Binding(
-                            get: { voiceSettings.emotionEnergy },
-                            set: { voiceSettings.emotionEnergy = $0; voiceSettings.activePreset = nil }
-                        ),
-                        range: VoiceSettings.Ranges.emotionEnergy,
-                        format: "%.2f"
-                    )
+                    // Emotion controls - only for High Quality tier
+                    if ttsService.selectedTier.supportsEmotionControls {
+                        ModernSlider(
+                            title: "Emotion / Energy",
+                            subtitle: "Softer ↔ Expressive",
+                            value: Binding(
+                                get: { voiceSettings.emotionEnergy },
+                                set: { voiceSettings.emotionEnergy = $0; voiceSettings.activePreset = nil }
+                            ),
+                            range: VoiceSettings.Ranges.emotionEnergy,
+                            format: "%.2f"
+                        )
 
-                    ModernSlider(
-                        title: "Voice Match",
-                        subtitle: "Natural ↔ Stylized",
-                        value: Binding(
-                            get: { voiceSettings.voiceMatchStrength },
-                            set: { voiceSettings.voiceMatchStrength = $0; voiceSettings.activePreset = nil }
-                        ),
-                        range: VoiceSettings.Ranges.voiceMatchStrength,
-                        format: "%.1f"
-                    )
+                        ModernSlider(
+                            title: "Voice Match",
+                            subtitle: "Natural ↔ Stylized",
+                            value: Binding(
+                                get: { voiceSettings.voiceMatchStrength },
+                                set: { voiceSettings.voiceMatchStrength = $0; voiceSettings.activePreset = nil }
+                            ),
+                            range: VoiceSettings.Ranges.voiceMatchStrength,
+                            format: "%.1f"
+                        )
+                    } else {
+                        // Show info for Fast/Normal tiers
+                        HStack(spacing: 8) {
+                            Image(systemName: "info.circle")
+                                .foregroundStyle(.blue)
+                            Text(ttsService.selectedTier == .fast
+                                ? "Fast tier uses Kokoro voices for instant generation"
+                                : "Normal tier supports paralinguistic tags like [laugh], [chuckle]")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(12)
+                        .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                    }
 
                     ModernSlider(
                         title: "Pacing",
@@ -1184,6 +1210,98 @@ struct ModernSlider: View {
             case "Pacing": value = defaults.pacing
             case "Fade-Out": value = defaults.fadeOutLength
             default: break
+            }
+        }
+    }
+}
+
+// MARK: - Tier Selector
+
+struct TierSelector: View {
+    @Binding var selectedTier: TTSTier
+    let availableTiers: [TTSTier]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Voice Quality")
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+
+            if availableTiers.isEmpty {
+                // Loading state
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                    Text("Loading tiers...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            } else {
+                // Tier toggle buttons - horizontal layout
+                HStack(spacing: 6) {
+                    ForEach(TTSTier.allCases) { tier in
+                        let isAvailable = availableTiers.contains(tier)
+                        let isSelected = selectedTier == tier
+
+                        Button {
+                            if isAvailable {
+                                withAnimation(.spring(duration: 0.2)) {
+                                    selectedTier = tier
+                                }
+                            }
+                        } label: {
+                            VStack(spacing: 6) {
+                                Image(systemName: tier.icon)
+                                    .font(.title3)
+                                    .foregroundStyle(isSelected ? AnyShapeStyle(.white) : (isAvailable ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary)))
+
+                                Text(tier.displayName)
+                                    .font(.caption)
+                                    .fontWeight(isSelected ? .semibold : .regular)
+                                    .foregroundStyle(isSelected ? AnyShapeStyle(.white) : (isAvailable ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary)))
+
+                                Text(tier.modelInfo)
+                                    .font(.caption2)
+                                    .foregroundStyle(isSelected ? .white.opacity(0.8) : .secondary)
+                            }
+                            .padding(.vertical, 12)
+                            .padding(.horizontal, 8)
+                            .frame(maxWidth: .infinity)
+                            .background(
+                                isSelected
+                                    ? Color.accentColor
+                                    : Color.secondary.opacity(0.08),
+                                in: RoundedRectangle(cornerRadius: 10)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .strokeBorder(
+                                        isSelected ? Color.clear : (isAvailable ? Color.secondary.opacity(0.2) : Color.clear),
+                                        lineWidth: 1
+                                    )
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .opacity(isAvailable ? 1 : 0.4)
+                        .disabled(!isAvailable)
+                        .help(isAvailable ? tier.description : "Tier not available - download required")
+                    }
+                }
+
+                // Description of selected tier
+                HStack(spacing: 8) {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                    Text(selectedTier.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.top, 4)
             }
         }
     }

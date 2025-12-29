@@ -3,6 +3,67 @@ import os.log
 
 private let logger = Logger(subsystem: "com.murmur.app", category: "TTS")
 
+/// Available TTS quality tiers
+enum TTSTier: String, Codable, CaseIterable, Identifiable {
+    case fast = "fast"      // Kokoro 82M - instant generation
+    case normal = "normal"  // Chatterbox Turbo 350M - balanced
+    case high = "high"      // Chatterbox Standard 500M - best quality
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .fast: return "Fast"
+        case .normal: return "Normal"
+        case .high: return "High Quality"
+        }
+    }
+
+    var modelInfo: String {
+        switch self {
+        case .fast: return "Kokoro 82M"
+        case .normal: return "Turbo 350M"
+        case .high: return "Standard 500M"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .fast: return "Instant generation, perfect for quick drafts"
+        case .normal: return "Balanced speed and quality with paralinguistic tags"
+        case .high: return "Best quality with emotion and voice matching controls"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .fast: return "bolt.fill"
+        case .normal: return "scale.3d"
+        case .high: return "sparkles"
+        }
+    }
+
+    /// Whether this tier supports exaggeration and cfg_weight parameters
+    var supportsEmotionControls: Bool {
+        switch self {
+        case .fast: return false
+        case .normal: return false
+        case .high: return true
+        }
+    }
+
+    /// Whether this tier uses Kokoro voices
+    var usesKokoroVoices: Bool {
+        self == .fast
+    }
+}
+
+/// Legacy model enum for backwards compatibility
+enum TTSModel: String, Codable {
+    case standard = "standard"
+    case turbo = "turbo"
+}
+
 /// Errors that can occur during TTS operations
 enum TTSError: LocalizedError {
     case modelNotLoaded
@@ -30,6 +91,7 @@ enum TTSError: LocalizedError {
 /// Request payload for TTS generation
 private struct TTSRequest: Encodable {
     let text: String
+    let tier: String
     let exaggeration: Float
     let cfg_weight: Float
     let speed: Float
@@ -42,13 +104,24 @@ private struct TTSResponse: Decodable {
     let sample_rate: Int
     let duration_seconds: Double
     let format: String
+    let tier_used: String?
+    let model_used: String?
+}
+
+/// Tier status from health check
+private struct TierStatus: Decodable {
+    let available: Bool
+    let loaded: Bool
 }
 
 /// Health check response
 private struct HealthResponse: Decodable {
     let status: String
-    let model_loaded: Bool
+    let tiers: [String: TierStatus]?
     let device: String
+    // Legacy fields
+    let models_loaded: [String: Bool]?
+    let available_models: [String]
 }
 
 /// Service for text-to-speech generation using Chatterbox via HTTP
@@ -63,6 +136,8 @@ final class TTSService: ObservableObject {
     @Published private(set) var isGenerating: Bool = false
     @Published private(set) var lastError: TTSError?
     @Published private(set) var serverDevice: String = "unknown"
+    @Published private(set) var availableTiers: [TTSTier] = []
+    @Published var selectedTier: TTSTier = .fast
 
     // MARK: - Private Properties
 
@@ -86,7 +161,7 @@ final class TTSService: ObservableObject {
 
     // MARK: - Server Connection
 
-    /// Check if the Chatterbox server is running and model is loaded
+    /// Check if the TTS server is running and at least one tier is loaded
     func loadModel() async throws {
         guard !isLoading else { return }
 
@@ -96,18 +171,54 @@ final class TTSService: ObservableObject {
 
         defer { isLoading = false }
 
-        logger.info("Checking Chatterbox server status...")
+        logger.info("Checking TTS server status...")
 
         do {
             let health = try await checkServerHealth()
 
-            if health.model_loaded {
+            // Parse available tiers from new format or legacy format
+            var available: [TTSTier] = []
+
+            if let tiers = health.tiers {
+                // New tier-based format
+                for (tierName, status) in tiers {
+                    if status.loaded, let tier = TTSTier(rawValue: tierName) {
+                        available.append(tier)
+                    }
+                }
+            } else {
+                // Legacy format - map to tiers
+                for modelName in health.available_models {
+                    if let tier = TTSTier(rawValue: modelName) {
+                        available.append(tier)
+                    } else if modelName == "standard" {
+                        available.append(.high)
+                    } else if modelName == "turbo" {
+                        available.append(.normal)
+                    } else if modelName == "kokoro" {
+                        available.append(.fast)
+                    }
+                }
+            }
+
+            // Sort tiers by preference (fast first)
+            available.sort { $0.rawValue < $1.rawValue }
+            availableTiers = available
+
+            if !available.isEmpty {
                 isModelLoaded = true
                 serverDevice = health.device
                 downloadProgress = 1.0
-                logger.info("Chatterbox server connected, model loaded on \(health.device)")
+
+                // Select fast tier if available and currently selected tier isn't available
+                if !available.contains(selectedTier) {
+                    selectedTier = available.first ?? .fast
+                }
+
+                let tierNames = available.map { $0.displayName }.joined(separator: ", ")
+                logger.info("TTS server connected, tiers loaded: \(tierNames) on \(health.device)")
             } else {
-                logger.warning("Server running but model not loaded")
+                logger.warning("Server running but no tiers loaded")
                 lastError = .modelNotLoaded
                 throw TTSError.modelNotLoaded
             }
@@ -115,7 +226,7 @@ final class TTSService: ObservableObject {
             lastError = error
             throw error
         } catch {
-            logger.error("Failed to connect to Chatterbox server: \(error.localizedDescription)")
+            logger.error("Failed to connect to TTS server: \(error.localizedDescription)")
             lastError = .serverNotRunning
             throw TTSError.serverNotRunning
         }
@@ -150,7 +261,8 @@ final class TTSService: ObservableObject {
         text: String,
         voice: Voice,
         speed: Float = 1.0,
-        voiceSettings: VoiceSettings = .default
+        voiceSettings: VoiceSettings = .default,
+        tier: TTSTier? = nil
     ) async throws -> [Float] {
         guard isModelLoaded else {
             throw TTSError.modelNotLoaded
@@ -164,21 +276,32 @@ final class TTSService: ObservableObject {
         isGenerating = true
         lastError = nil
 
+        // Use provided tier or the selected tier
+        let tierToUse = tier ?? selectedTier
+
         defer {
             Task { @MainActor in
                 self.isGenerating = false
             }
         }
 
-        logger.info("Starting generation: \"\(trimmedText.prefix(50))...\"")
+        logger.info("Starting generation with \(tierToUse.displayName) tier: \"\(trimmedText.prefix(50))...\"")
         logger.info("Settings: voice=\(voice.id), emotion=\(voiceSettings.emotionEnergy), cfg=\(voiceSettings.voiceMatchStrength), speed=\(voiceSettings.pacing)")
 
         do {
-            // Only send voice_id if it's not the default voice
-            let voiceId = voice.id == "default" ? nil : voice.id
+            // Determine voice_id based on tier
+            let voiceId: String?
+            if tierToUse == .fast {
+                // For fast tier, use Kokoro voice names or default
+                voiceId = voice.id == "default" ? "af_bella" : voice.id
+            } else {
+                // For normal/high tiers, use Chatterbox voice
+                voiceId = voice.id == "default" ? nil : voice.id
+            }
 
             let requestBody = TTSRequest(
                 text: trimmedText,
+                tier: tierToUse.rawValue,
                 exaggeration: voiceSettings.emotionEnergy,
                 cfg_weight: voiceSettings.voiceMatchStrength,
                 speed: voiceSettings.pacing,
@@ -219,7 +342,8 @@ final class TTSService: ObservableObject {
                 sampleRate: ttsResponse.sample_rate
             )
 
-            logger.info("Generated \(finalSamples.count) samples (\(ttsResponse.duration_seconds)s)")
+            let tierUsed = ttsResponse.tier_used ?? tierToUse.rawValue
+            logger.info("Generated \(finalSamples.count) samples (\(ttsResponse.duration_seconds)s) using \(tierUsed) tier")
             return finalSamples
 
         } catch let error as TTSError {

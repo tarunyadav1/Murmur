@@ -233,14 +233,42 @@ final class ServerManager: ObservableObject {
                 return false
             }
 
+            // Tier status from new format
+            struct TierStatus: Decodable {
+                let available: Bool
+                let loaded: Bool
+            }
+
+            // Health response supporting both new and legacy formats
             struct HealthResponse: Decodable {
                 let status: String
-                let model_loaded: Bool
+                let tiers: [String: TierStatus]?
+                let device: String
+                // Legacy fields
+                let models_loaded: [String: Bool]?
+                let available_models: [String]
             }
 
             let health = try JSONDecoder().decode(HealthResponse.self, from: data)
-            logger.info("Health check: model_loaded=\(health.model_loaded)")
-            return health.model_loaded
+
+            // Check if any tier/model is loaded
+            var anyLoaded = false
+
+            if let tiers = health.tiers {
+                // New tier-based format
+                anyLoaded = tiers.values.contains { $0.loaded }
+                let loadedTiers = tiers.filter { $0.value.loaded }.map { $0.key }
+                logger.info("Health check: tiers=\(loadedTiers), device=\(health.device)")
+            } else if let modelsLoaded = health.models_loaded {
+                // Legacy format
+                anyLoaded = modelsLoaded.values.contains(true)
+                logger.info("Health check: models=\(health.available_models), anyLoaded=\(anyLoaded)")
+            } else {
+                // Fallback to available_models
+                anyLoaded = !health.available_models.isEmpty
+            }
+
+            return anyLoaded
 
         } catch {
             logger.debug("Health check failed: \(error.localizedDescription)")
@@ -252,22 +280,62 @@ final class ServerManager: ObservableObject {
         healthCheckTask?.cancel()
 
         healthCheckTask = Task {
+            var consecutiveFailures = 0
+            let maxFailuresBeforeRestart = 2
+
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 10_000_000_000) // 10 seconds
+                try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds (faster checks)
 
                 guard !Task.isCancelled else { break }
 
                 let healthy = await checkServerHealth()
 
                 await MainActor.run {
-                    if !healthy && self.serverState == .running {
-                        logger.warning("Server health check failed")
-                        self.serverState = .failed("Server connection lost")
-                        self.statusMessage = "Server connection lost"
+                    if healthy {
+                        consecutiveFailures = 0
+                        if self.serverState == .failed("Server connection lost") {
+                            // Server recovered
+                            self.serverState = .running
+                            self.statusMessage = "Server running on port \(self.port)"
+                        }
+                    } else if self.serverState == .running {
+                        consecutiveFailures += 1
+                        logger.warning("Server health check failed (\(consecutiveFailures)/\(maxFailuresBeforeRestart))")
+
+                        if consecutiveFailures >= maxFailuresBeforeRestart {
+                            logger.error("Server appears to have crashed, attempting auto-restart...")
+                            self.serverState = .failed("Server connection lost - restarting...")
+                            self.statusMessage = "Restarting server..."
+
+                            // Trigger auto-restart
+                            Task {
+                                await self.autoRestart()
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+
+    /// Auto-restart the server after a crash
+    private func autoRestart() async {
+        // Stop any existing process
+        if let process = serverProcess, process.isRunning {
+            process.terminate()
+            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+            if process.isRunning {
+                process.interrupt()
+            }
+        }
+        serverProcess = nil
+
+        // Wait a moment before restarting
+        try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+
+        // Restart the server
+        logger.info("Auto-restarting server...")
+        await startServer()
     }
 
     // MARK: - Errors
