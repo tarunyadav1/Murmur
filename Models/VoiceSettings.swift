@@ -1,6 +1,6 @@
 import Foundation
 
-/// Voice style parameters for Chatterbox TTS
+/// Voice style parameters for TTS generation
 struct VoiceSettings: Codable, Equatable {
     /// Emotion/Energy intensity (0.0 = flat/monotone, 1.0 = dramatic/expressive)
     var emotionEnergy: Float

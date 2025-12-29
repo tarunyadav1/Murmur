@@ -3,7 +3,7 @@ import os.log
 
 private let logger = Logger(subsystem: "com.murmur.app", category: "ServerManager")
 
-/// Manages the Chatterbox TTS server process lifecycle
+/// Manages the TTS server process lifecycle
 @MainActor
 final class ServerManager: ObservableObject {
 
@@ -42,7 +42,7 @@ final class ServerManager: ObservableObject {
 
     // MARK: - Server Lifecycle
 
-    /// Start the Chatterbox server
+    /// Start the TTS server
     func startServer() async {
         guard serverState != .running && serverState != .starting else {
             logger.info("Server already running or starting")
@@ -67,7 +67,7 @@ final class ServerManager: ObservableObject {
             if ready {
                 serverState = .running
                 statusMessage = "Server running on port \(port)"
-                logger.info("Chatterbox server started successfully")
+                logger.info("TTS server started successfully")
 
                 // Start health check monitoring
                 startHealthMonitoring()
@@ -108,7 +108,7 @@ final class ServerManager: ObservableObject {
         healthCheckTask = nil
 
         if let process = serverProcess, process.isRunning {
-            logger.info("Stopping Chatterbox server...")
+            logger.info("Stopping TTS server...")
             process.terminate()
 
             // Give it a moment to terminate gracefully
@@ -134,28 +134,18 @@ final class ServerManager: ObservableObject {
     // MARK: - Private Methods
 
     private func launchServer() async throws {
-        // Check for Kokoro environment first (for fast TTS), fall back to regular python-env
+        // Check for Kokoro environment (for fast TTS)
         let appSupportDir = pythonEnvironment.serverDirectory.deletingLastPathComponent()
         let kokoroEnvPath = appSupportDir.appendingPathComponent("kokoro-env/bin/python3").path
-        let regularPythonPath = pythonEnvironment.pythonPath
 
-        // Determine which python and server script to use
-        let pythonPath: String
-        let serverScriptName: String
-
-        if FileManager.default.fileExists(atPath: kokoroEnvPath) {
-            // Use Kokoro environment
-            pythonPath = kokoroEnvPath
-            serverScriptName = "kokoro_server.py"
-            logger.info("Using Kokoro environment for fast TTS")
-        } else if let regularPath = regularPythonPath {
-            // Fall back to regular Chatterbox server
-            pythonPath = regularPath
-            serverScriptName = "server.py"
-            logger.info("Using regular Python environment")
-        } else {
+        // Use Kokoro environment
+        guard FileManager.default.fileExists(atPath: kokoroEnvPath) else {
             throw ServerError.pythonNotConfigured
         }
+
+        let pythonPath = kokoroEnvPath
+        let serverScriptName = "kokoro_server.py"
+        logger.info("Starting voice server...")
 
         let serverScript = pythonEnvironment.serverDirectory.appendingPathComponent(serverScriptName)
 
@@ -213,18 +203,50 @@ final class ServerManager: ObservableObject {
     }
 
     private func waitForServerReady(maxAttempts: Int, delaySeconds: Double) async -> Bool {
-        for attempt in 1...maxAttempts {
-            if await checkServerHealth() {
-                return true
-            }
+        var serverResponded = false
 
-            // User-friendly message without technical details
-            if attempt < 10 {
-                statusMessage = "Loading voices..."
-            } else if attempt < 30 {
-                statusMessage = "Almost ready..."
-            } else {
-                statusMessage = "Still loading (this may take a minute)..."
+        for attempt in 1...maxAttempts {
+            let result = await checkServerHealthDetailed()
+
+            switch result {
+            case .ready:
+                return true
+
+            case .loading:
+                // Server is responding but model is loading - this is good progress
+                serverResponded = true
+                statusMessage = "Loading voice model..."
+                logger.info("Server responding, model loading (attempt \(attempt))")
+
+            case .notLoaded:
+                serverResponded = true
+                statusMessage = "Preparing voices..."
+
+            case .error(let message):
+                serverResponded = true
+                logger.error("Server reported error: \(message)")
+                statusMessage = "Error loading model"
+                // Don't immediately fail - model might recover
+                if attempt > 5 {
+                    return false
+                }
+
+            case .unreachable:
+                // Server not yet responding
+                if !serverResponded {
+                    // First phase: waiting for server to start
+                    if attempt < 5 {
+                        statusMessage = "Starting server..."
+                    } else if attempt < 15 {
+                        statusMessage = "Loading voices..."
+                    } else {
+                        statusMessage = "Almost ready..."
+                    }
+                } else {
+                    // Server was responding but stopped - this is bad
+                    logger.warning("Server stopped responding after being available")
+                    statusMessage = "Server connection lost..."
+                }
             }
 
             try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
@@ -238,7 +260,26 @@ final class ServerManager: ObservableObject {
         return false
     }
 
+    /// Result of a health check
+    private enum HealthCheckResult {
+        case ready           // Model loaded and ready
+        case loading         // Server running, model loading
+        case notLoaded       // Server running, model not loaded
+        case error(String)   // Server running but error occurred
+        case unreachable     // Server not responding
+    }
+
     private func checkServerHealth() async -> Bool {
+        let result = await checkServerHealthDetailed()
+        switch result {
+        case .ready:
+            return true
+        case .loading, .notLoaded, .error, .unreachable:
+            return false
+        }
+    }
+
+    private func checkServerHealthDetailed() async -> HealthCheckResult {
         let url = URL(string: "http://127.0.0.1:\(port)/health")!
 
         do {
@@ -247,49 +288,85 @@ final class ServerManager: ObservableObject {
             guard let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200 else {
                 logger.debug("Health check: bad response")
-                return false
+                return .unreachable
             }
 
-            // Tier status from new format
+            // Kokoro server format
+            struct KokoroHealthResponse: Decodable {
+                let status: String
+                let model_loaded: Bool
+                let model_loading: Bool?
+                let load_error: String?
+                let device: String
+            }
+
+            // Tier status from three-tier format
             struct TierStatus: Decodable {
                 let available: Bool
                 let loaded: Bool
             }
 
-            // Health response supporting both new and legacy formats
+            // Health response supporting multiple formats
             struct HealthResponse: Decodable {
                 let status: String
                 let tiers: [String: TierStatus]?
                 let device: String
                 // Legacy fields
                 let models_loaded: [String: Bool]?
-                let available_models: [String]
+                let available_models: [String]?
+                // Kokoro fields
+                let model_loaded: Bool?
+                let model_loading: Bool?
+                let load_error: String?
             }
 
             let health = try JSONDecoder().decode(HealthResponse.self, from: data)
 
-            // Check if any tier/model is loaded
-            var anyLoaded = false
+            // Check for Kokoro format first (model_loaded field)
+            if let modelLoaded = health.model_loaded {
+                if let loadError = health.load_error, !loadError.isEmpty {
+                    logger.error("Health check: model load error: \(loadError)")
+                    return .error(loadError)
+                }
 
-            if let tiers = health.tiers {
-                // New tier-based format
-                anyLoaded = tiers.values.contains { $0.loaded }
-                let loadedTiers = tiers.filter { $0.value.loaded }.map { $0.key }
-                logger.info("Health check: tiers=\(loadedTiers), device=\(health.device)")
-            } else if let modelsLoaded = health.models_loaded {
-                // Legacy format
-                anyLoaded = modelsLoaded.values.contains(true)
-                logger.info("Health check: models=\(health.available_models), anyLoaded=\(anyLoaded)")
-            } else {
-                // Fallback to available_models
-                anyLoaded = !health.available_models.isEmpty
+                if health.model_loading == true {
+                    logger.info("Health check: model loading...")
+                    return .loading
+                }
+
+                if modelLoaded {
+                    logger.info("Health check: model ready, device=\(health.device)")
+                    return .ready
+                } else {
+                    return .notLoaded
+                }
             }
 
-            return anyLoaded
+            // Check tier-based format
+            if let tiers = health.tiers {
+                let anyLoaded = tiers.values.contains { $0.loaded }
+                let loadedTiers = tiers.filter { $0.value.loaded }.map { $0.key }
+                logger.info("Health check: tiers=\(loadedTiers), device=\(health.device)")
+                return anyLoaded ? .ready : .notLoaded
+            }
+
+            // Legacy format
+            if let modelsLoaded = health.models_loaded {
+                let anyLoaded = modelsLoaded.values.contains(true)
+                logger.info("Health check: models=\(health.available_models ?? []), anyLoaded=\(anyLoaded)")
+                return anyLoaded ? .ready : .notLoaded
+            }
+
+            // Fallback to available_models
+            if let availableModels = health.available_models, !availableModels.isEmpty {
+                return .ready
+            }
+
+            return .notLoaded
 
         } catch {
             logger.debug("Health check failed: \(error.localizedDescription)")
-            return false
+            return .unreachable
         }
     }
 

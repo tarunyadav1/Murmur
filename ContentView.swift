@@ -303,7 +303,7 @@ struct ContentView: View {
 
     private var statusText: String {
         if ttsService.isModelLoaded {
-            return "Ready (Kokoro)"
+            return "Ready"
         }
         if ttsService.isLoading { return "Connecting..." }
         return "Offline"
@@ -350,23 +350,12 @@ struct ContentView: View {
                     .fontWeight(.semibold)
                     .fontDesign(.rounded)
 
-                // Kokoro Voice Selector
+                // Voice Selector
                 KokoroVoiceSelector(
                     selectedVoiceId: $ttsService.selectedVoiceId,
                     voices: ttsService.kokoroVoices,
                     searchText: $voiceSearchText
                 )
-
-                // Speed info
-                HStack(spacing: 8) {
-                    Image(systemName: "bolt.fill")
-                        .foregroundStyle(.yellow)
-                    Text("Kokoro 82M - ~7x faster than real-time on Apple Silicon")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(12)
-                .background(.yellow.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
 
                 Divider()
                     .padding(.vertical, 4)
@@ -1205,9 +1194,16 @@ struct KokoroVoiceSelector: View {
                         Text(selectedVoice?.name ?? "Select Voice")
                             .foregroundStyle(.primary)
                         if let voice = selectedVoice {
-                            Text("\(voice.gender.capitalized) • \(voice.accent)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            HStack(spacing: 4) {
+                                Text("\(voice.gender.capitalized) • \(voice.accent)")
+                                if !voice.description.isEmpty {
+                                    Text("•")
+                                    Text(voice.description)
+                                }
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                         }
                     }
                     Spacer()
@@ -1253,8 +1249,14 @@ struct KokoroVoiceSelector: View {
                                 } label: {
                                     HStack {
                                         VStack(alignment: .leading, spacing: 3) {
-                                            Text(voice.name)
-                                                .foregroundStyle(.primary)
+                                            HStack(spacing: 6) {
+                                                Text(voice.name)
+                                                    .foregroundStyle(.primary)
+                                                if !voice.description.isEmpty {
+                                                    Text("– \(voice.description)")
+                                                        .foregroundStyle(.tertiary)
+                                                }
+                                            }
                                             Text("\(voice.gender.capitalized) • \(voice.accent)")
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)

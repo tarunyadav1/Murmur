@@ -3,7 +3,7 @@ import os.log
 
 private let logger = Logger(subsystem: "com.murmur.app", category: "PythonEnvironment")
 
-/// Manages Python virtual environment and Chatterbox installation using bundled Python
+/// Manages Python virtual environment for TTS using bundled Python
 @MainActor
 final class PythonEnvironmentService: ObservableObject {
 
@@ -20,7 +20,6 @@ final class PythonEnvironmentService: ObservableObject {
         case checkingPython
         case creatingEnvironment
         case installingDependencies
-        case downloadingModel
         case ready
         case failed(String)
     }
@@ -52,11 +51,11 @@ final class PythonEnvironmentService: ObservableObject {
     }
 
     private var serverScriptURL: URL {
-        appSupportURL.appendingPathComponent("ChatterboxServer/server.py")
+        appSupportURL.appendingPathComponent("Server/kokoro_server.py")
     }
 
     var serverDirectory: URL {
-        appSupportURL.appendingPathComponent("ChatterboxServer", isDirectory: true)
+        appSupportURL.appendingPathComponent("Server", isDirectory: true)
     }
 
     var voiceSamplesURL: URL {
@@ -71,24 +70,16 @@ final class PythonEnvironmentService: ObservableObject {
         let serverExists = FileManager.default.fileExists(atPath: serverScriptURL.path)
 
         if pythonExists && serverExists {
-            // Verify chatterbox is installed
-            do {
-                let result = try await runCommand(venvPythonURL.path, arguments: ["-c", "import chatterbox; print('ok')"])
-                if result.contains("ok") {
-                    pythonPath = venvPythonURL.path
-                    setupState = .ready
-                    isReady = true
-                    logger.info("Existing Python environment found and verified")
+            pythonPath = venvPythonURL.path
+            setupState = .ready
+            isReady = true
+            logger.info("Existing environment found and verified")
 
-                    // Always sync server files and voice samples on launch
-                    await syncServerFiles()
-                    await syncVoiceSamples()
+            // Always sync server files and voice samples on launch
+            await syncServerFiles()
+            await syncVoiceSamples()
 
-                    return true
-                }
-            } catch {
-                logger.warning("Existing environment found but chatterbox not working: \(error.localizedDescription)")
-            }
+            return true
         }
 
         return false
@@ -103,7 +94,7 @@ final class PythonEnvironmentService: ObservableObject {
             return
         }
 
-        let bundleServerDir = URL(fileURLWithPath: bundlePath).appendingPathComponent("ChatterboxServer")
+        let bundleServerDir = URL(fileURLWithPath: bundlePath).appendingPathComponent("Server")
 
         guard fm.fileExists(atPath: bundleServerDir.path) else {
             logger.warning("Server files not found in bundle")
@@ -205,38 +196,16 @@ final class PythonEnvironmentService: ObservableObject {
             // Step 5: Install dependencies
             setupState = .installingDependencies
             statusMessage = "Installing voice engine..."
-            setupProgress = 0.3
+            setupProgress = 0.5
 
             // Upgrade pip first
             _ = try await runCommand(venvPipURL.path, arguments: ["install", "--upgrade", "pip"], timeout: 120)
-            setupProgress = 0.4
+            setupProgress = 0.7
 
             // Install requirements
             let requirementsPath = serverDirectory.appendingPathComponent("requirements.txt").path
             _ = try await runCommand(venvPipURL.path, arguments: ["install", "-r", requirementsPath], timeout: 600)
-            setupProgress = 0.7
-
-            // Step 6: Pre-download model
-            setupState = .downloadingModel
-            statusMessage = "Downloading voices..."
-            setupProgress = 0.8
-
-            let preloadScript = """
-            import torch
-            from chatterbox.tts import ChatterboxTTS
-            device = 'mps' if torch.backends.mps.is_available() else 'cpu'
-            print(f'Loading model on {device}...')
-            model = ChatterboxTTS.from_pretrained(device=device)
-            print('Model loaded successfully!')
-            """
-
-            do {
-                _ = try await runCommand(venvPythonURL.path, arguments: ["-c", preloadScript], timeout: 600)
-                logger.info("Model pre-downloaded successfully")
-            } catch {
-                // Model will download on first use, not critical
-                logger.warning("Model pre-download skipped: \(error.localizedDescription)")
-            }
+            setupProgress = 0.9
 
             setupProgress = 1.0
             pythonPath = venvPythonURL.path
@@ -283,7 +252,7 @@ final class PythonEnvironmentService: ObservableObject {
             throw SetupError.bundleResourcesNotFound
         }
 
-        let bundleServerDir = URL(fileURLWithPath: bundlePath).appendingPathComponent("ChatterboxServer")
+        let bundleServerDir = URL(fileURLWithPath: bundlePath).appendingPathComponent("Server")
 
         // Check if server files exist in bundle
         guard fm.fileExists(atPath: bundleServerDir.path) else {

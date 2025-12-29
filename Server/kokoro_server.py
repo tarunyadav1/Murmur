@@ -9,6 +9,7 @@ import io
 import base64
 import logging
 import time
+import threading
 from typing import Optional
 from contextlib import asynccontextmanager
 
@@ -22,8 +23,10 @@ from pydantic import BaseModel, Field
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Global model instance
+# Global model instance and loading state
 kokoro_model = None
+model_loading = False
+model_load_error: Optional[str] = None
 SAMPLE_RATE = 24000
 
 # All available Kokoro voices from https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md
@@ -145,32 +148,48 @@ class VoiceInfo(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    status: str
+    status: str  # "ok", "loading", "error"
     model_loaded: bool
+    model_loading: bool = False
+    load_error: Optional[str] = None
     device: str
     sample_rate: int
     voices_count: int
 
 
-def load_kokoro():
-    """Load the Kokoro model"""
-    global kokoro_model
+def load_kokoro_sync():
+    """Load the Kokoro model (called in background thread)"""
+    global kokoro_model, model_loading, model_load_error
 
+    model_loading = True
+    model_load_error = None
     logger.info("Loading Kokoro model (82M params)...")
+
     try:
         from mlx_audio.tts.generate import load_model
         kokoro_model = load_model("mlx-community/Kokoro-82M-bf16")
         logger.info("Kokoro model loaded successfully!")
+        model_loading = False
         return True
     except Exception as e:
         logger.error(f"Failed to load Kokoro model: {e}")
+        model_load_error = str(e)
+        model_loading = False
         return False
+
+
+def start_model_loading():
+    """Start loading model in background thread"""
+    thread = threading.Thread(target=load_kokoro_sync, daemon=True)
+    thread.start()
+    logger.info("Started background model loading thread")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load model on startup"""
-    load_kokoro()
+    """Start model loading in background on startup"""
+    # Start loading in background - server responds immediately
+    start_model_loading()
     yield
     logger.info("Shutting down Kokoro server...")
 
@@ -193,9 +212,20 @@ app.add_middleware(
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Check server health and model status"""
+    if model_load_error:
+        status = "error"
+    elif model_loading:
+        status = "loading"
+    elif kokoro_model:
+        status = "ok"
+    else:
+        status = "not_started"
+
     return HealthResponse(
-        status="ok" if kokoro_model else "model_not_loaded",
+        status=status,
         model_loaded=kokoro_model is not None,
+        model_loading=model_loading,
+        load_error=model_load_error,
         device="mps",  # MLX uses Metal/MPS
         sample_rate=SAMPLE_RATE,
         voices_count=len(KOKORO_VOICES)

@@ -159,10 +159,10 @@ echo "ZIP created: $ZIP_DIST_PATH"
 
 # Verify bundle contents
 echo "Verifying bundle contents..."
-if [ -d "$APP_PATH/Contents/Resources/ChatterboxServer" ]; then
-    echo "  ChatterboxServer: OK"
+if [ -d "$APP_PATH/Contents/Resources/Server" ]; then
+    echo "  Server: OK"
 else
-    echo "  WARNING: ChatterboxServer not found in bundle!"
+    echo "  WARNING: Server not found in bundle!"
 fi
 
 if [ -d "$APP_PATH/Contents/Resources/VoiceSamples" ]; then

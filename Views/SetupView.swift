@@ -180,8 +180,6 @@ struct SetupView: View {
             return "Setting things up..."
         case .installingDependencies:
             return "Installing voice engine..."
-        case .downloadingModel:
-            return "Downloading voice files..."
         case .ready:
             return "Almost there..."
         case .failed:

@@ -47,6 +47,8 @@ private struct TTSResponse: Decodable {
 private struct HealthResponse: Decodable {
     let status: String
     let model_loaded: Bool
+    let model_loading: Bool?
+    let load_error: String?
     let device: String
     let sample_rate: Int
     let voices_count: Int

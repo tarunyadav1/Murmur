@@ -92,11 +92,11 @@ enum VoiceCategory: String, CaseIterable, Identifiable {
 // MARK: - Voice Extensions
 
 extension Voice {
-    /// The default voice (no cloning, uses Chatterbox default)
+    /// The default voice
     static let defaultVoice = Voice(
         id: "default",
         name: "Default",
-        description: "Default Chatterbox voice (no cloning)",
+        description: "Default voice",
         gender: .neutral,
         style: .default
     )

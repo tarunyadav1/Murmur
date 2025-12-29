@@ -1,0 +1,9 @@
+# Kokoro TTS Server Dependencies
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+numpy>=1.26.4
+soundfile>=0.12.0
+
+# MLX-based TTS (Kokoro)
+mlx>=0.21.0
+mlx-audio>=0.1.0
