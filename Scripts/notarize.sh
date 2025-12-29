@@ -6,7 +6,7 @@
 set -e
 
 APP_PATH="$1"
-BUNDLE_ID="com.yourorg.murmur"
+BUNDLE_ID="com.murmur.app"
 
 # These should be set in your environment or keychain
 # APPLE_ID="your@email.com"

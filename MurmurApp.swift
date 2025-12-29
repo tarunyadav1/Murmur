@@ -1,13 +1,19 @@
 import SwiftUI
+import os.log
+
+private let logger = Logger(subsystem: "com.murmur.app", category: "App")
 
 @main
 struct MurmurApp: App {
 
+    @StateObject private var licenseService = LicenseService()
     @StateObject private var pythonEnv = PythonEnvironmentService()
     @StateObject private var ttsService = TTSService()
     @StateObject private var audioPlayerService = AudioPlayerService()
     @StateObject private var settingsService = SettingsService()
 
+    @State private var isLicenseValidated = false
+    @State private var isCheckingLicense = true
     @State private var isSetupComplete = false
     @State private var _serverManager: ServerManager?
 
@@ -22,7 +28,18 @@ struct MurmurApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if isSetupComplete {
+                if isCheckingLicense {
+                    // Initial license check loading state
+                    licenseLoadingView
+                } else if !isLicenseValidated {
+                    // Show license activation view
+                    LicenseView(licenseService: licenseService) {
+                        withAnimation(.spring(duration: 0.5)) {
+                            isLicenseValidated = true
+                        }
+                    }
+                } else if isSetupComplete {
+                    // Main app content
                     ContentView()
                         .environmentObject(ttsService)
                         .environmentObject(audioPlayerService)
@@ -31,6 +48,7 @@ struct MurmurApp: App {
                             await loadModelOnLaunch()
                         }
                 } else {
+                    // Setup flow
                     if let manager = _serverManager {
                         SetupView(
                             pythonEnv: pythonEnv,
@@ -55,6 +73,9 @@ struct MurmurApp: App {
                 }
             }
             .frame(minWidth: 800, minHeight: 500)
+            .task {
+                await checkLicense()
+            }
         }
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified(showsTitle: true))
@@ -105,8 +126,44 @@ struct MurmurApp: App {
             SettingsView()
                 .environmentObject(settingsService)
                 .environmentObject(ttsService)
+                .environmentObject(licenseService)
         }
     }
+
+    // MARK: - License Loading View
+
+    private var licenseLoadingView: some View {
+        ZStack {
+            Color(NSColor.windowBackgroundColor)
+            VStack(spacing: 16) {
+                ProgressView()
+                    .scaleEffect(1.2)
+                Text("Checking license...")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: - License Check
+
+    private func checkLicense() async {
+        logger.info("Starting license check...")
+
+        // Small delay for UI smoothness
+        try? await Task.sleep(for: .milliseconds(300))
+
+        let isValid = await licenseService.checkLicenseOnLaunch()
+        logger.info("License check result: \(isValid)")
+
+        await MainActor.run {
+            isLicenseValidated = isValid
+            isCheckingLicense = false
+            logger.info("State updated - isLicenseValidated: \(isValid), isCheckingLicense: false")
+        }
+    }
+
+    // MARK: - Model Loading
 
     private func loadModelOnLaunch() async {
         if let manager = _serverManager, manager.serverState != .running {
@@ -116,7 +173,7 @@ struct MurmurApp: App {
         do {
             try await ttsService.loadModel()
         } catch {
-            print("Failed to load model: \(error)")
+            logger.error("Failed to load model: \(error.localizedDescription)")
         }
     }
 }

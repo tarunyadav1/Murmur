@@ -17,5 +17,12 @@ enum Constants {
 
     enum UserDefaultsKeys {
         static let settings = "com.murmur.settings"
+        static let license = "com.murmur.license"
+    }
+
+    enum License {
+        static let gumroadProductId = "b6lNvnB4q0MeK3VP02U4gg=="
+        static let gumroadPurchaseURL = "https://tarunyadav.gumroad.com/l/ruzpof"
+        static let offlineGracePeriodDays = 30
     }
 }
