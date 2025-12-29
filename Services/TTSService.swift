@@ -50,8 +50,8 @@ private struct HealthResponse: Decodable {
     let model_loading: Bool?
     let load_error: String?
     let device: String
-    let sample_rate: Int
-    let voices_count: Int
+    let sample_rate: Int?
+    let voices_count: Int?
 }
 
 /// Voice info from Kokoro server
@@ -123,7 +123,11 @@ final class TTSService: ObservableObject {
                 // Fetch available voices
                 await fetchVoices()
 
-                logger.info("Kokoro TTS connected: \(health.voices_count) voices on \(health.device)")
+                logger.info("Kokoro TTS connected on \(health.device)")
+            } else if health.model_loading == true {
+                logger.info("Server running, model is loading...")
+                lastError = .modelNotLoaded
+                throw TTSError.modelNotLoaded
             } else {
                 logger.warning("Server running but model not loaded")
                 lastError = .modelNotLoaded
