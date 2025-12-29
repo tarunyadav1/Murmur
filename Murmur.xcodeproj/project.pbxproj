@@ -38,6 +38,10 @@
 		83545B143A68E12807C25E85 /* fsmonitor-watchman.sample in Resources */ = {isa = PBXBuildFile; fileRef = E0B4DB80C237D9C93F8399B1 /* fsmonitor-watchman.sample */; };
 		85E7761291F2C29CB195261E /* Array+Audio.swift in Sources */ = {isa = PBXBuildFile; fileRef = 717D1DEB62A99442820E8058 /* Array+Audio.swift */; };
 		8744651C2DD9597CF21C902C /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CEB45FF13562BE1AB05BAC1 /* Constants.swift */; };
+		TOAST1234567890ABCDEF01 /* ToastView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TOASTREF1234567890ABC1 /* ToastView.swift */; };
+		FLOAT1234567890ABCDEF02 /* FloatingAudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FLOATREF1234567890AB2 /* FloatingAudioPlayer.swift */; };
+		COACH1234567890ABCDEF03 /* CoachMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = COACHREF1234567890AB3 /* CoachMark.swift */; };
+		DESGN1234567890ABCDEF04 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = DESGNREF1234567890AB4 /* DesignSystem.swift */; };
 		8CCA4B0474992F7A1EE9DEE0 /* pre-rebase.sample in Resources */ = {isa = PBXBuildFile; fileRef = 2CDC5E6F8131951F3E5020F7 /* pre-rebase.sample */; };
 		9BF9C1E1B5C1CBCAEF0C9CEE /* pre-push.sample in Resources */ = {isa = PBXBuildFile; fileRef = 664E43E5DA0DCA33FF404155 /* pre-push.sample */; };
 		A2EA8FFF2E861390FEEC8D58 /* VoiceSelectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58D7910C74ACE81A01DD2DB9 /* VoiceSelectorView.swift */; };
@@ -159,6 +163,10 @@
 		0CC4204F7E635F48D52F1AE6 /* 560e54fcaf575e07b113caeb497c05cc49154f */ = {isa = PBXFileReference; path = 560e54fcaf575e07b113caeb497c05cc49154f; sourceTree = "<group>"; };
 		0CD8D882F6FB268847BDECC1 /* 42a07753c9217802f8a267f20e7fe6ffc28fb6 */ = {isa = PBXFileReference; path = 42a07753c9217802f8a267f20e7fe6ffc28fb6; sourceTree = "<group>"; };
 		0CEB45FF13562BE1AB05BAC1 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
+		TOASTREF1234567890ABC1 /* ToastView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastView.swift; sourceTree = "<group>"; };
+		FLOATREF1234567890AB2 /* FloatingAudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingAudioPlayer.swift; sourceTree = "<group>"; };
+		COACHREF1234567890AB3 /* CoachMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachMark.swift; sourceTree = "<group>"; };
+		DESGNREF1234567890AB4 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
 		0CEFF9F5E7C90A962CFDAF4B /* b13e35834038ead38c7e872c2b652a86915d5d */ = {isa = PBXFileReference; path = b13e35834038ead38c7e872c2b652a86915d5d; sourceTree = "<group>"; };
 		0D00419CB990254FD14EB796 /* 3287d85da4b2e313b7bed953953f1eb0743ecb */ = {isa = PBXFileReference; path = 3287d85da4b2e313b7bed953953f1eb0743ecb; sourceTree = "<group>"; };
 		0D0F14018603A3AE3ABF0601 /* 70c922c84fabe0031333a4de305dd6d6852911 */ = {isa = PBXFileReference; path = 70c922c84fabe0031333a4de305dd6d6852911; sourceTree = "<group>"; };
@@ -2613,6 +2621,7 @@
 			isa = PBXGroup;
 			children = (
 				0CEB45FF13562BE1AB05BAC1 /* Constants.swift */,
+				DESGNREF1234567890AB4 /* DesignSystem.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -5795,10 +5804,13 @@
 			isa = PBXGroup;
 			children = (
 				967DFC6F61B7888E253FA07C /* BatchQueueView.swift */,
+				COACHREF1234567890AB3 /* CoachMark.swift */,
+				FLOATREF1234567890AB2 /* FloatingAudioPlayer.swift */,
 				BE54000601A96FD4533F857D /* PlaybackControlsView.swift */,
 				FD3A3FD6290A8CCB6193FFDA /* ProgressOverlay.swift */,
 				B0E289E43E20904EAD0C1F41 /* SpeedControlView.swift */,
 				0EE1F5AC1C6C02DCE1C63C5E /* TextInputView.swift */,
+				TOASTREF1234567890ABC1 /* ToastView.swift */,
 				58D7910C74ACE81A01DD2DB9 /* VoiceSelectorView.swift */,
 				59B4B85E8C4D2F292BE0D40E /* VoiceStylePresetSelector.swift */,
 				B344AA443F5548062A8DC4EF /* VoiceStyleView.swift */,
@@ -7288,6 +7300,10 @@
 				C0CCC7F9C000CDD88730FCFC /* BatchQueueView.swift in Sources */,
 				52E738DFA49F3E2822C99DC5 /* BatchQueueViewModel.swift in Sources */,
 				8744651C2DD9597CF21C902C /* Constants.swift in Sources */,
+				DESGN1234567890ABCDEF04 /* DesignSystem.swift in Sources */,
+				TOAST1234567890ABCDEF01 /* ToastView.swift in Sources */,
+				FLOAT1234567890ABCDEF02 /* FloatingAudioPlayer.swift in Sources */,
+				COACH1234567890ABCDEF03 /* CoachMark.swift in Sources */,
 				0709B9D315755E7B821D9759 /* ContentView.swift in Sources */,
 				091DA5ECE6DB8D74FBDB4177 /* HistoryService.swift in Sources */,
 				6DA49FB9CCA842FA4B2688C0 /* MurmurApp.swift in Sources */,

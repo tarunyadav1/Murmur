@@ -173,6 +173,10 @@ final class ServerManager: ObservableObject {
         // Tell server where to find voice samples (fixes path resolution issues)
         env["MURMUR_VOICE_SAMPLES_DIR"] = pythonEnvironment.voiceSamplesURL.path
 
+        // Fix SSL certificate issues on macOS - use system certificates
+        env["SSL_CERT_FILE"] = "/etc/ssl/cert.pem"
+        env["REQUESTS_CA_BUNDLE"] = "/etc/ssl/cert.pem"
+
         process.environment = env
 
         // Capture output for debugging

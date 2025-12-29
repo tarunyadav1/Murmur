@@ -8,13 +8,13 @@ struct ContentView: View {
     @EnvironmentObject var settingsService: SettingsService
 
     @StateObject private var historyService = HistoryService()
+    @ObservedObject private var toastManager = ToastManager.shared
 
     @State private var text: String = ""
     @State private var selectedVoice: Voice = .defaultVoice
     @State private var voiceSettings: VoiceSettings = .default
     @State private var generatedAudio: [Float]?
     @State private var isGenerating = false
-    @State private var errorMessage: String?
     @State private var generatedFilename: String = ""
 
     // Generation timing
@@ -27,7 +27,9 @@ struct ContentView: View {
     @State private var voiceSearchText: String = ""
     @State private var showQueue = false
     @State private var batchQueueViewModel: BatchQueueViewModel?
-    @State private var showInspector = true
+    @State private var showInspector = false // Collapsed by default now
+    @State private var isDropTargeted = false
+    @State private var createButtonPressed = false
 
     private var wordCount: Int {
         text.split(separator: " ").count
@@ -42,24 +44,80 @@ struct ContentView: View {
     }
 
     var body: some View {
-        HSplitView {
-            // Main Content Area
-            mainContentPanel
-                .frame(minWidth: 480)
+        ZStack {
+            HSplitView {
+                // Main Content Area - Content First!
+                mainContentPanel
+                    .frame(minWidth: 520)
 
-            // Inspector Panel
-            if showInspector {
-                inspectorPanel
-                    .frame(width: 340)
+                // Inspector Panel - Collapsed by default
+                if showInspector {
+                    inspectorPanel
+                        .frame(width: 320)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+
+            // Floating Audio Player
+            if generatedAudio != nil {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        FloatingAudioPlayer(
+                            filename: generatedFilename,
+                            duration: audioPlayerService.duration,
+                            currentTime: audioPlayerService.currentTime,
+                            isPlaying: audioPlayerService.isPlaying,
+                            samples: generatedAudio ?? [],
+                            generationTime: lastGenerationTime,
+                            onPlay: { audioPlayerService.play() },
+                            onPause: { audioPlayerService.pause() },
+                            onStop: { audioPlayerService.stop() },
+                            onSeek: { audioPlayerService.seek(to: $0) },
+                            onExport: showExportPanel,
+                            onDismiss: {
+                                withAnimation(MurmurDesign.Animations.panelSlide) {
+                                    generatedAudio = nil
+                                    audioPlayerService.stop()
+                                }
+                            }
+                        )
+                        .padding(.trailing, 24)
+                        .padding(.bottom, 24)
+                    }
+                }
+                .transition(.asymmetric(
+                    insertion: .move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)),
+                    removal: .opacity
+                ))
             }
         }
-        .frame(minWidth: 800, minHeight: 500)
+        .frame(minWidth: 700, minHeight: 450)
         .background(Color(NSColor.windowBackgroundColor))
+        .withToasts()
+        .withOnboarding()
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
                 toolbarItems
             }
         }
+        .onDrop(of: [.text, .plainText, .fileURL], isTargeted: $isDropTargeted) { providers in
+            handleDrop(providers: providers)
+        }
+        .overlay {
+            // Drop zone indicator
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: MurmurDesign.Radius.lg)
+                    .strokeBorder(MurmurDesign.Colors.voicePrimary, style: StrokeStyle(lineWidth: 3, dash: [10]))
+                    .background(MurmurDesign.Colors.voicePrimary.opacity(0.05))
+                    .padding(8)
+                    .transition(.opacity)
+            }
+        }
+        .animation(MurmurDesign.Animations.quick, value: isDropTargeted)
+        .animation(MurmurDesign.Animations.panelSlide, value: showInspector)
+        .animation(MurmurDesign.Animations.panelSlide, value: generatedAudio != nil)
         .onAppear {
             selectedVoice = settingsService.settings.defaultVoice
             voiceSettings = settingsService.settings.voiceSettings
@@ -77,222 +135,260 @@ struct ContentView: View {
 
     private var mainContentPanel: some View {
         VStack(spacing: 0) {
-            // Text Input Area
-            VStack(alignment: .leading, spacing: 16) {
-                textEditorSection
+            // Compact toolbar with voice selector
+            compactToolbar
+                .padding(.horizontal, MurmurDesign.Spacing.lg)
+                .padding(.top, MurmurDesign.Spacing.md)
+
+            // Hero: Text Input Area
+            VStack(alignment: .leading, spacing: MurmurDesign.Spacing.md) {
+                heroTextEditor
                 actionButtonsRow
             }
-            .padding(24)
+            .padding(MurmurDesign.Spacing.lg)
 
-            // Audio Player (when available)
-            if generatedAudio != nil {
-                AudioPlayerCard(
-                    filename: generatedFilename,
-                    duration: audioPlayerService.duration,
-                    currentTime: audioPlayerService.currentTime,
-                    isPlaying: audioPlayerService.isPlaying,
-                    samples: generatedAudio ?? [],
-                    generationTime: lastGenerationTime,
-                    onPlay: { audioPlayerService.play() },
-                    onPause: { audioPlayerService.pause() },
-                    onStop: { audioPlayerService.stop() },
-                    onSeek: { audioPlayerService.seek(to: $0) },
-                    onDownload: showExportPanel
-                )
-                .padding(.horizontal, 24)
-                .transition(.asymmetric(
-                    insertion: .move(edge: .top).combined(with: .opacity),
-                    removal: .opacity
-                ))
+            Spacer(minLength: 0)
+
+            // Minimal status bar
+            minimalStatusBar
+                .padding(.horizontal, MurmurDesign.Spacing.lg)
+                .padding(.bottom, MurmurDesign.Spacing.md)
+        }
+    }
+
+    // MARK: - Compact Toolbar
+
+    private var compactToolbar: some View {
+        HStack(spacing: MurmurDesign.Spacing.sm) {
+            // Voice selector - compact
+            Menu {
+                ForEach(ttsService.kokoroVoices) { voice in
+                    Button {
+                        ttsService.selectedVoiceId = voice.id
+                    } label: {
+                        HStack {
+                            Text(voice.name)
+                            if ttsService.selectedVoiceId == voice.id {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "person.wave.2")
+                        .font(.caption)
+                    Text(selectedVoiceName)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.quaternary.opacity(0.5), in: Capsule())
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+
+            Spacer()
+
+            // Quick stats
+            if !text.isEmpty {
+                HStack(spacing: MurmurDesign.Spacing.xs) {
+                    Chip(text: "\(wordCount) words", icon: "textformat")
+                    if !isGenerating {
+                        Chip(text: estimatedTime, icon: "clock")
+                    }
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
+        }
+        .animation(MurmurDesign.Animations.quick, value: text.isEmpty)
+    }
+
+    private var selectedVoiceName: String {
+        ttsService.kokoroVoices.first { $0.id == ttsService.selectedVoiceId }?.name ?? "Select Voice"
+    }
+
+    // MARK: - Hero Text Editor
+
+    private var heroTextEditor: some View {
+        VStack(spacing: 0) {
+            ZStack(alignment: .topLeading) {
+                // Placeholder
+                if text.isEmpty {
+                    Text("What would you like to say?")
+                        .font(.title3)
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 16)
+                        .allowsHitTesting(false)
+                }
+
+                TextEditor(text: $text)
+                    .font(.title3)
+                    .scrollContentBackground(.hidden)
+                    .padding(14)
+            }
+            .frame(minHeight: 200, maxHeight: .infinity)
+            .background {
+                RoundedRectangle(cornerRadius: MurmurDesign.Radius.lg)
+                    .fill(.regularMaterial)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: MurmurDesign.Radius.lg)
+                    .strokeBorder(
+                        isDropTargeted ? MurmurDesign.Colors.voicePrimary : Color.secondary.opacity(0.2),
+                        lineWidth: isDropTargeted ? 2 : 0.5
+                    )
+            }
+        }
+    }
+
+    // MARK: - Action Buttons with Micro-animations
+
+    private var actionButtonsRow: some View {
+        HStack(spacing: MurmurDesign.Spacing.sm) {
+            // Primary Create button with animation
+            Button(action: generate) {
+                HStack(spacing: 8) {
+                    if isGenerating {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                            .frame(width: 16, height: 16)
+                    } else {
+                        Image(systemName: "waveform")
+                            .symbolEffect(.variableColor.iterative, options: .repeating, isActive: ttsService.isModelLoaded && !text.isEmpty)
+                    }
+                    Text(isGenerating ? "Creating..." : "Create")
+                        .fontWeight(.semibold)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(MurmurDesign.Colors.voicePrimary)
+            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isGenerating || !ttsService.isModelLoaded)
+            .keyboardShortcut(.return, modifiers: .command)
+            .scaleEffect(createButtonPressed ? 0.95 : 1.0)
+            .animation(MurmurDesign.Animations.buttonPress, value: createButtonPressed)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in createButtonPressed = true }
+                    .onEnded { _ in createButtonPressed = false }
+            )
+
+            // Keyboard hint on hover
+            KeyboardHint(keys: "⌘↩")
+                .opacity(createButtonPressed ? 0 : 0.7)
+
+            if isGenerating {
+                Button(action: stopGeneration) {
+                    Image(systemName: "stop.fill")
+                        .foregroundStyle(MurmurDesign.Colors.error)
+                }
+                .buttonStyle(.bordered)
+                .transition(.scale.combined(with: .opacity))
             }
 
             Spacer()
 
-            // Status Bar
-            statusBar
-                .padding(.horizontal, 24)
-                .padding(.bottom, 16)
-
-            // Error Message
-            if let error = errorMessage {
-                errorBanner(error)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 16)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(.spring(duration: 0.4, bounce: 0.2), value: generatedAudio != nil)
-        .animation(.spring(duration: 0.3), value: errorMessage != nil)
-    }
-
-    private var textEditorSection: some View {
-        HStack(alignment: .top, spacing: 12) {
-            TextEditor(text: $text)
-                .font(.system(size: 15))
-                .scrollContentBackground(.hidden)
-                .padding(14)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(.quaternary, lineWidth: 1)
-                )
-                .frame(minHeight: 140)
-
+            // Copy button
             if !text.isEmpty {
                 Button(action: copyText) {
                     Image(systemName: "doc.on.doc")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
                 .help("Copy text")
                 .transition(.scale.combined(with: .opacity))
             }
-        }
-        .animation(.spring(duration: 0.2), value: text.isEmpty)
-    }
 
-    private var actionButtonsRow: some View {
-        HStack(spacing: 12) {
-            // Primary action group
-            ControlGroup {
-                Button(action: generate) {
-                    HStack(spacing: 6) {
-                        if isGenerating {
-                            ProgressView()
-                                .scaleEffect(0.6)
-                                .frame(width: 14, height: 14)
-                        } else {
-                            Image(systemName: "waveform")
-                                .symbolEffect(.pulse, isActive: ttsService.isModelLoaded && !text.isEmpty)
-                        }
-                        Text(isGenerating ? "Creating..." : "Create")
-                    }
-                }
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isGenerating || !ttsService.isModelLoaded)
-                .keyboardShortcut(.return, modifiers: .command)
-
-                if isGenerating {
-                    Button(action: stopGeneration) {
-                        Image(systemName: "stop.fill")
-                    }
-                    .tint(.red)
-                }
-            }
-            .controlGroupStyle(.navigation)
-
-            // Add to Queue button
-            if !isGenerating {
+            // Add to Queue
+            if !isGenerating && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Button(action: addToQueue) {
                     Label("Queue", systemImage: "plus.circle")
                 }
                 .buttonStyle(.bordered)
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-
-            Spacer()
-
-            // Info chips
-            HStack(spacing: 8) {
-                if !text.isEmpty && !isGenerating {
-                    Chip(text: estimatedTime, icon: "clock")
-                }
-                Chip(text: "\(wordCount) words", icon: "textformat")
+                .transition(.scale.combined(with: .opacity))
             }
         }
+        .animation(MurmurDesign.Animations.quick, value: isGenerating)
+        .animation(MurmurDesign.Animations.quick, value: text.isEmpty)
     }
 
-    private var statusBar: some View {
-        HStack(spacing: 16) {
-            // Connection status
-            HStack(spacing: 8) {
+    // MARK: - Minimal Status Bar
+
+    private var minimalStatusBar: some View {
+        HStack(spacing: MurmurDesign.Spacing.md) {
+            // Connection indicator - minimal
+            HStack(spacing: 6) {
                 Circle()
                     .fill(statusColor)
-                    .frame(width: 8, height: 8)
-                    .shadow(color: statusColor.opacity(0.5), radius: 4)
+                    .frame(width: 6, height: 6)
+                    .softGlow(statusColor, radius: 4)
 
                 Text(statusText)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tertiary)
+            }
 
-                if !ttsService.isModelLoaded && !ttsService.isLoading {
-                    Button("Connect") {
-                        Task { try? await ttsService.loadModel() }
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.mini)
+            if !ttsService.isModelLoaded && !ttsService.isLoading {
+                Button("Connect") {
+                    Task { try? await ttsService.loadModel() }
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
             }
 
             Spacer()
 
-            // Panel toggles
-            HStack(spacing: 4) {
+            // Panel toggles - icon only
+            HStack(spacing: 2) {
                 Button {
-                    withAnimation(.spring(duration: 0.3)) {
+                    withAnimation(MurmurDesign.Animations.panelSlide) {
                         showQueue.toggle()
-                        if showQueue { showHistory = false }
+                        if showQueue {
+                            showHistory = false
+                            showInspector = true
+                        }
                     }
                 } label: {
-                    Label {
-                        HStack(spacing: 4) {
-                            Text("Queue")
-                            if let vm = batchQueueViewModel, vm.blocks.count > 0 {
-                                Text("\(vm.blocks.count)")
-                                    .font(.caption2)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.tint.opacity(0.2), in: Capsule())
-                            }
-                        }
-                    } icon: {
+                    ZStack {
                         Image(systemName: "list.bullet")
+                        if let vm = batchQueueViewModel, vm.blocks.count > 0 {
+                            Text("\(vm.blocks.count)")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(3)
+                                .background(MurmurDesign.Colors.voicePrimary, in: Circle())
+                                .offset(x: 8, y: -8)
+                        }
                     }
                 }
                 .buttonStyle(.bordered)
-                .tint(showQueue ? .accentColor : nil)
+                .tint(showQueue ? MurmurDesign.Colors.voicePrimary : nil)
                 .controlSize(.small)
+                .help("Queue")
 
                 Button {
-                    withAnimation(.spring(duration: 0.3)) {
+                    withAnimation(MurmurDesign.Animations.panelSlide) {
                         showHistory.toggle()
-                        if showHistory { showQueue = false }
+                        if showHistory {
+                            showQueue = false
+                            showInspector = true
+                        }
                     }
                 } label: {
-                    Label("History", systemImage: "clock.arrow.circlepath")
+                    Image(systemName: "clock.arrow.circlepath")
                 }
                 .buttonStyle(.bordered)
-                .tint(showHistory ? .accentColor : nil)
+                .tint(showHistory ? MurmurDesign.Colors.voicePrimary : nil)
                 .controlSize(.small)
+                .help("History")
             }
         }
-    }
-
-    private func errorBanner(_ message: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
-                .symbolEffect(.pulse)
-
-            Text(message)
-                .font(.callout)
-
-            Spacer()
-
-            Button {
-                withAnimation { errorMessage = nil }
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.caption)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(12)
-        .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(.red.opacity(0.3), lineWidth: 1)
-        )
     }
 
     private var statusColor: Color {
@@ -415,8 +511,8 @@ struct ContentView: View {
         guard !trimmedText.isEmpty else { return }
 
         isGenerating = true
-        errorMessage = nil
         generationStartTime = Date()
+        toastManager.showGenerating()
 
         Task {
             do {
@@ -430,7 +526,7 @@ struct ContentView: View {
                 let generationTime = Date().timeIntervalSince(generationStartTime ?? Date())
                 let audioDuration = Double(audio.count) / Double(TTSService.sampleRate)
 
-                withAnimation(.spring(duration: 0.4, bounce: 0.2)) {
+                withAnimation(MurmurDesign.Animations.panelSlide) {
                     generatedAudio = audio
                     generatedFilename = AudioExportService.generateFilename() + ".wav"
                     lastGenerationTime = generationTime
@@ -447,14 +543,15 @@ struct ContentView: View {
                     generationTimeSeconds: generationTime
                 )
 
+                // Success toast
+                toastManager.showSuccess("Audio ready! \(String(format: "%.1fs", generationTime))")
+
                 if settingsService.settings.autoPlayOnGenerate {
                     audioPlayerService.play()
                 }
             } catch {
                 if !Task.isCancelled {
-                    withAnimation {
-                        errorMessage = error.localizedDescription
-                    }
+                    toastManager.showError(error.localizedDescription)
                 }
             }
 
@@ -463,10 +560,67 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Drag and Drop
+
+    private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        for provider in providers {
+            // Handle text files
+            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                    guard let data = item as? Data,
+                          let url = URL(dataRepresentation: data, relativeTo: nil),
+                          let fileContent = try? String(contentsOf: url, encoding: .utf8) else { return }
+
+                    DispatchQueue.main.async {
+                        withAnimation(MurmurDesign.Animations.quick) {
+                            self.text = fileContent
+                        }
+                        toastManager.show(.info, message: "Text loaded from file")
+                    }
+                }
+                return true
+            }
+
+            // Handle plain text
+            if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+                provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { item, _ in
+                    guard let data = item as? Data,
+                          let droppedText = String(data: data, encoding: .utf8) else { return }
+
+                    DispatchQueue.main.async {
+                        withAnimation(MurmurDesign.Animations.quick) {
+                            self.text = droppedText
+                        }
+                        toastManager.show(.info, message: "Text dropped")
+                    }
+                }
+                return true
+            }
+
+            // Handle string directly
+            if provider.canLoadObject(ofClass: String.self) {
+                _ = provider.loadObject(ofClass: String.self) { droppedText, _ in
+                    guard let droppedText = droppedText else { return }
+
+                    DispatchQueue.main.async {
+                        withAnimation(MurmurDesign.Animations.quick) {
+                            self.text = droppedText
+                        }
+                        toastManager.show(.info, message: "Text dropped")
+                    }
+                }
+                return true
+            }
+        }
+        return false
+    }
+
     private func stopGeneration() {
         ttsService.cancelGeneration()
         isGenerating = false
         generationStartTime = nil
+        toastManager.dismiss()
+        toastManager.show(.info, message: "Generation cancelled")
     }
 
     private func addToQueue() {
@@ -505,11 +659,12 @@ struct ContentView: View {
 
                 do {
                     try await exportService.export(samples: audio, format: format, to: url)
+                    await MainActor.run {
+                        toastManager.showSuccess("Audio exported successfully")
+                    }
                 } catch {
                     await MainActor.run {
-                        withAnimation {
-                            errorMessage = error.localizedDescription
-                        }
+                        toastManager.showError(error.localizedDescription)
                     }
                 }
             }

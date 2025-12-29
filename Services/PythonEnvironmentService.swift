@@ -39,7 +39,7 @@ final class PythonEnvironmentService: ObservableObject {
     }
 
     private var venvURL: URL {
-        appSupportURL.appendingPathComponent("python-env", isDirectory: true)
+        appSupportURL.appendingPathComponent("kokoro-env", isDirectory: true)
     }
 
     private var venvPythonURL: URL {
@@ -102,9 +102,9 @@ final class PythonEnvironmentService: ObservableObject {
         }
 
         do {
-            // Sync server.py
-            let srcServer = bundleServerDir.appendingPathComponent("server.py")
-            let dstServer = serverDirectory.appendingPathComponent("server.py")
+            // Sync kokoro_server.py
+            let srcServer = bundleServerDir.appendingPathComponent("kokoro_server.py")
+            let dstServer = serverDirectory.appendingPathComponent("kokoro_server.py")
             if fm.fileExists(atPath: dstServer.path) {
                 try fm.removeItem(at: dstServer)
             }
@@ -259,9 +259,9 @@ final class PythonEnvironmentService: ObservableObject {
             throw SetupError.bundleResourcesNotFound
         }
 
-        // Copy server.py
-        let srcServer = bundleServerDir.appendingPathComponent("server.py")
-        let dstServer = serverDirectory.appendingPathComponent("server.py")
+        // Copy kokoro_server.py
+        let srcServer = bundleServerDir.appendingPathComponent("kokoro_server.py")
+        let dstServer = serverDirectory.appendingPathComponent("kokoro_server.py")
 
         if fm.fileExists(atPath: dstServer.path) {
             try fm.removeItem(at: dstServer)
