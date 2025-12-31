@@ -162,14 +162,22 @@ struct ContentView: View {
         HStack(spacing: MurmurDesign.Spacing.sm) {
             // Voice selector - compact
             Menu {
-                ForEach(ttsService.kokoroVoices) { voice in
-                    Button {
-                        ttsService.selectedVoiceId = voice.id
-                    } label: {
-                        HStack {
-                            Text(voice.name)
-                            if ttsService.selectedVoiceId == voice.id {
-                                Image(systemName: "checkmark")
+                if ttsService.kokoroVoices.isEmpty {
+                    Button("Loading voices...") { }
+                        .disabled(true)
+                    Button("Retry") {
+                        Task { await ttsService.refreshVoices() }
+                    }
+                } else {
+                    ForEach(ttsService.kokoroVoices) { voice in
+                        Button {
+                            ttsService.selectedVoiceId = voice.id
+                        } label: {
+                            HStack {
+                                Text(voice.name)
+                                if ttsService.selectedVoiceId == voice.id {
+                                    Image(systemName: "checkmark")
+                                }
                             }
                         }
                     }
@@ -450,7 +458,10 @@ struct ContentView: View {
                 KokoroVoiceSelector(
                     selectedVoiceId: $ttsService.selectedVoiceId,
                     voices: ttsService.kokoroVoices,
-                    searchText: $voiceSearchText
+                    searchText: $voiceSearchText,
+                    onRetryLoadVoices: {
+                        await ttsService.refreshVoices()
+                    }
                 )
 
                 Divider()
@@ -1311,8 +1322,10 @@ struct KokoroVoiceSelector: View {
     @Binding var selectedVoiceId: String
     let voices: [KokoroVoice]
     @Binding var searchText: String
+    var onRetryLoadVoices: (() async -> Void)? = nil
 
     @State private var isExpanded = false
+    @State private var isRetrying = false
 
     private var filteredVoices: [KokoroVoice] {
         if searchText.isEmpty {
@@ -1338,46 +1351,79 @@ struct KokoroVoiceSelector: View {
                 .fontWeight(.medium)
                 .foregroundStyle(.secondary)
 
-            // Selected voice button
-            Button {
-                withAnimation(.spring(duration: 0.25, bounce: 0.2)) {
-                    isExpanded.toggle()
-                }
-            } label: {
+            // Empty state with retry
+            if voices.isEmpty {
                 HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(selectedVoice?.name ?? "Select Voice")
-                            .foregroundStyle(.primary)
-                        if let voice = selectedVoice {
-                            HStack(spacing: 4) {
-                                Text("\(voice.gender.capitalized) • \(voice.accent)")
-                                if !voice.description.isEmpty {
-                                    Text("•")
-                                    Text(voice.description)
-                                }
-                            }
-                            .font(.caption)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("No voices available")
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                        }
+                        Text("Server may still be loading")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
                     }
                     Spacer()
-                    Image(systemName: "chevron.down")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                    if isRetrying {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    } else {
+                        Button("Retry") {
+                            Task {
+                                isRetrying = true
+                                await onRetryLoadVoices?()
+                                isRetrying = false
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
                 }
                 .padding(14)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(isExpanded ? Color.accentColor.opacity(0.5) : Color.secondary.opacity(0.2), lineWidth: 1)
+                        .strokeBorder(Color.orange.opacity(0.3), lineWidth: 1)
                 )
-            }
-            .buttonStyle(.plain)
+            } else {
+                // Selected voice button
+                Button {
+                    withAnimation(.spring(duration: 0.25, bounce: 0.2)) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(selectedVoice?.name ?? "Select Voice")
+                                .foregroundStyle(.primary)
+                            if let voice = selectedVoice {
+                                HStack(spacing: 4) {
+                                    Text("\(voice.gender.capitalized) • \(voice.accent)")
+                                    if !voice.description.isEmpty {
+                                        Text("•")
+                                        Text(voice.description)
+                                    }
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            }
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.down")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                    }
+                    .padding(14)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(isExpanded ? Color.accentColor.opacity(0.5) : Color.secondary.opacity(0.2), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
 
-            // Expanded list
-            if isExpanded {
+                // Expanded list
+                if isExpanded {
                 VStack(spacing: 10) {
                     // Search
                     HStack(spacing: 8) {
@@ -1442,6 +1488,7 @@ struct KokoroVoiceSelector: View {
                     insertion: .scale(scale: 0.95, anchor: .top).combined(with: .opacity),
                     removal: .opacity
                 ))
+                }
             }
         }
     }

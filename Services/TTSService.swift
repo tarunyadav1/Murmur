@@ -156,24 +156,60 @@ final class TTSService: ObservableObject {
     }
 
     private func fetchVoices() async {
-        do {
-            let url = serverURL.appendingPathComponent("voices")
-            let (data, response) = try await session.data(from: url)
+        // Retry up to 3 times with delay
+        for attempt in 1...3 {
+            do {
+                let url = serverURL.appendingPathComponent("voices")
+                let (data, response) = try await session.data(from: url)
 
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
+                guard let httpResponse = response as? HTTPURLResponse,
+                      httpResponse.statusCode == 200 else {
+                    logger.warning("Voices endpoint returned non-200, attempt \(attempt)/3")
+                    if attempt < 3 {
+                        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                        continue
+                    }
+                    return
+                }
+
+                self.kokoroVoices = try JSONDecoder().decode([KokoroVoice].self, from: data)
+                logger.info("Loaded \(self.kokoroVoices.count) Kokoro voices")
                 return
+            } catch {
+                logger.warning("Failed to fetch voices (attempt \(attempt)/3): \(error.localizedDescription)")
+                if attempt < 3 {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                }
             }
-
-            self.kokoroVoices = try JSONDecoder().decode([KokoroVoice].self, from: data)
-            logger.info("Loaded \(self.kokoroVoices.count) Kokoro voices")
-        } catch {
-            logger.warning("Failed to fetch voices: \(error.localizedDescription)")
         }
+        logger.error("Failed to fetch voices after 3 attempts")
     }
 
     func unloadModel() {
         isModelLoaded = false
+        kokoroVoices = []
+    }
+
+    /// Force refresh the voice list from the server
+    func refreshVoices() async {
+        await fetchVoices()
+    }
+
+    /// Check if the server is healthy and reload voices if needed
+    func ensureReady() async -> Bool {
+        do {
+            let health = try await checkServerHealth()
+            if health.model_loaded {
+                if kokoroVoices.isEmpty {
+                    await fetchVoices()
+                }
+                isModelLoaded = true
+                return true
+            }
+        } catch {
+            logger.warning("Server not ready: \(error.localizedDescription)")
+        }
+        return false
     }
 
     // MARK: - Speech Generation
@@ -235,7 +271,22 @@ final class TTSService: ObservableObject {
             }
 
             if httpResponse.statusCode != 200 {
-                let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+                // Try to parse FastAPI error response
+                var errorMessage = "Unknown error"
+                if let errorJson = try? JSONDecoder().decode([String: String].self, from: data),
+                   let detail = errorJson["detail"] {
+                    errorMessage = detail
+                } else if let rawError = String(data: data, encoding: .utf8) {
+                    errorMessage = rawError
+                }
+
+                // Handle common errors with user-friendly messages
+                if errorMessage.contains("Broken pipe") || errorMessage.contains("Connection") {
+                    throw TTSError.serverNotRunning
+                } else if httpResponse.statusCode == 503 {
+                    throw TTSError.modelNotLoaded
+                }
+
                 throw TTSError.generationFailed(errorMessage)
             }
 

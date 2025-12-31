@@ -4,7 +4,42 @@ Kokoro TTS Server - Fast tier for Murmur
 Uses MLX-accelerated Kokoro model (82M params) for instant TTS generation
 """
 
+# CRITICAL: Set offline mode BEFORE any imports that might touch HuggingFace
+# This must be at the very top of the file, before ANY other imports
 import os
+from pathlib import Path
+
+def get_local_model_path():
+    """Get the local path to the cached Kokoro model, or None if not cached"""
+    cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+    model_dir = cache_dir / "models--mlx-community--Kokoro-82M-bf16"
+
+    if model_dir.exists():
+        snapshots_dir = model_dir / "snapshots"
+        if snapshots_dir.exists():
+            # Get the latest snapshot
+            snapshots = list(snapshots_dir.iterdir())
+            if snapshots:
+                return str(snapshots[0])
+    return None
+
+def is_model_cached():
+    """Check if the Kokoro model is already cached locally"""
+    return get_local_model_path() is not None
+
+# Enable offline mode only if model is already cached
+# This allows first-time download but prevents network calls afterward
+if is_model_cached():
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    os.environ["HF_DATASETS_OFFLINE"] = "1"
+    # Also set short timeouts in case any library ignores offline mode
+    os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "1"
+    os.environ["REQUESTS_TIMEOUT"] = "1"
+    _OFFLINE_MODE = True
+else:
+    _OFFLINE_MODE = False
+
 import io
 import base64
 import logging
@@ -163,14 +198,27 @@ def load_kokoro_sync():
 
     model_loading = True
     model_load_error = None
-    logger.info("Loading Kokoro model (82M params)...")
 
     try:
         from mlx_audio.tts.generate import load_model
-        kokoro_model = load_model("mlx-community/Kokoro-82M-bf16")
+
+        # Try to use local path directly to avoid any network calls
+        local_path = get_local_model_path()
+
+        if local_path and _OFFLINE_MODE:
+            logger.info(f"Loading Kokoro model from LOCAL path: {local_path}")
+            logger.info("Offline mode enabled - voices will load from local cache")
+            kokoro_model = load_model(local_path)
+        else:
+            # Fallback to HuggingFace repo (will download if needed)
+            model_name = "mlx-community/Kokoro-82M-bf16"
+            logger.info(f"Loading Kokoro model from HuggingFace: {model_name}")
+            kokoro_model = load_model(model_name)
+
         logger.info("Kokoro model loaded successfully!")
         model_loading = False
         return True
+
     except Exception as e:
         logger.error(f"Failed to load Kokoro model: {e}")
         model_load_error = str(e)

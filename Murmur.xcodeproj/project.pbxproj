@@ -7429,7 +7429,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = build/Murmur.xcarchive/Products/Applications/Murmur.app/Contents/Info.plist;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_GENERATION_MODE = GeneratedFile;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -7454,7 +7454,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = build/Murmur.xcarchive/Products/Applications/Murmur.app/Contents/Info.plist;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_GENERATION_MODE = GeneratedFile;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

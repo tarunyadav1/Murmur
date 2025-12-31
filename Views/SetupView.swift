@@ -157,6 +157,17 @@ struct SetupView: View {
         }
     }
 
+    /// True only during first-time setup (installing Python env/dependencies)
+    /// False when just starting the server on subsequent launches
+    private var isFirstTimeSetup: Bool {
+        switch pythonEnv.setupState {
+        case .checkingPython, .creatingEnvironment, .installingDependencies:
+            return true
+        default:
+            return false
+        }
+    }
+
     private var currentStatusMessage: String {
         if pythonEnv.setupState == .ready {
             switch serverManager.serverState {
@@ -217,7 +228,9 @@ struct SetupView: View {
                 Text(currentStatusMessage)
                     .font(.system(size: 15, weight: .medium))
 
-                if pythonEnv.setupState != .ready || serverManager.serverState != .running {
+                // Only show "This only happens once" during first-time setup (installing dependencies)
+                // Don't show it when just starting the server on subsequent launches
+                if isFirstTimeSetup {
                     HStack(spacing: 6) {
                         ProgressView()
                             .scaleEffect(0.6)
