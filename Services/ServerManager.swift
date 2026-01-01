@@ -61,8 +61,8 @@ final class ServerManager: ObservableObject {
         do {
             try await launchServer()
 
-            // Wait for server to be ready (up to 2 minutes for model loading)
-            let ready = await waitForServerReady(maxAttempts: 60, delaySeconds: 2.0)
+            // Wait for server to be ready (up to 5 minutes for first-time model download)
+            let ready = await waitForServerReady(maxAttempts: 150, delaySeconds: 2.0)
 
             if ready {
                 serverState = .running
@@ -133,7 +133,30 @@ final class ServerManager: ObservableObject {
 
     // MARK: - Private Methods
 
+    /// Kill any existing process listening on our port
+    private func killExistingServerOnPort() async {
+        let serverPort = self.port
+        logger.info("Checking for existing process on port \(serverPort)...")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", "lsof -ti tcp:\(serverPort) | xargs kill -9 2>/dev/null || true"]
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            // Give it a moment for the port to be released
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            logger.info("Cleared port \(serverPort)")
+        } catch {
+            logger.warning("Failed to kill existing process: \(error.localizedDescription)")
+        }
+    }
+
     private func launchServer() async throws {
+        // Kill any existing process on our port first
+        await killExistingServerOnPort()
+
         // Check for Kokoro environment (for fast TTS)
         let appSupportDir = pythonEnvironment.serverDirectory.deletingLastPathComponent()
         let kokoroEnvPath = appSupportDir.appendingPathComponent("kokoro-env/bin/python3").path
@@ -154,9 +177,17 @@ final class ServerManager: ObservableObject {
         }
 
         let process = Process()
+        // Launch Python directly (bash wrapper causes quoting issues)
         process.executableURL = URL(fileURLWithPath: pythonPath)
         process.arguments = [serverScript.path]
         process.currentDirectoryURL = pythonEnvironment.serverDirectory
+
+        logger.info("DEBUG: Python path: \(pythonPath)")
+        logger.info("DEBUG: Script path: \(serverScript.path)")
+        logger.info("DEBUG: Working dir: \(self.pythonEnvironment.serverDirectory.path)")
+        logger.info("DEBUG: Python exists: \(FileManager.default.fileExists(atPath: pythonPath))")
+        logger.info("DEBUG: Python executable: \(FileManager.default.isExecutableFile(atPath: pythonPath))")
+        logger.info("DEBUG: Script exists: \(FileManager.default.fileExists(atPath: serverScript.path))")
 
         // Set up environment
         var env = ProcessInfo.processInfo.environment
@@ -173,11 +204,30 @@ final class ServerManager: ObservableObject {
         // Tell server where to find voice samples (fixes path resolution issues)
         env["MURMUR_VOICE_SAMPLES_DIR"] = pythonEnvironment.voiceSamplesURL.path
 
+        // Tell server where to find the bundled Kokoro model (avoids HuggingFace download)
+        if let resourcePath = Bundle.main.resourcePath {
+            let bundledModelPath = URL(fileURLWithPath: resourcePath)
+                .appendingPathComponent("KokoroModel").path
+            if FileManager.default.fileExists(atPath: bundledModelPath) {
+                env["MURMUR_KOKORO_MODEL_PATH"] = bundledModelPath
+                logger.info("Using bundled Kokoro model at: \(bundledModelPath)")
+            }
+        }
+
         // Fix SSL certificate issues on macOS - use system certificates
+        // Multiple env vars for different Python libraries
         env["SSL_CERT_FILE"] = "/etc/ssl/cert.pem"
+        env["SSL_CERT_DIR"] = "/etc/ssl/certs"
         env["REQUESTS_CA_BUNDLE"] = "/etc/ssl/cert.pem"
+        env["CURL_CA_BUNDLE"] = "/etc/ssl/cert.pem"
+        env["HTTPX_SSL_CERT_FILE"] = "/etc/ssl/cert.pem"
+        // For HuggingFace Hub specifically
+        env["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+        // Set longer timeout for model downloads
+        env["HF_HUB_DOWNLOAD_TIMEOUT"] = "300"
 
         process.environment = env
+        logger.info("DEBUG: PATH = \(env["PATH"] ?? "nil")")
 
         // Capture output for debugging
         let outputPipe = Pipe()
@@ -204,6 +254,11 @@ final class ServerManager: ObservableObject {
         serverProcess = process
 
         logger.info("Server process launched with PID: \(process.processIdentifier)")
+
+        // Add termination handler to catch crashes
+        process.terminationHandler = { proc in
+            logger.error("DEBUG: Server process terminated! Exit code: \(proc.terminationStatus), reason: \(proc.terminationReason.rawValue)")
+        }
     }
 
     private func waitForServerReady(maxAttempts: Int, delaySeconds: Double) async -> Bool {
@@ -242,7 +297,11 @@ final class ServerManager: ObservableObject {
                     if attempt < 5 {
                         statusMessage = "Starting server..."
                     } else if attempt < 15 {
-                        statusMessage = "Loading voices..."
+                        statusMessage = "Loading voice engine..."
+                    } else if attempt < 45 {
+                        statusMessage = "Downloading voice model (first run)..."
+                    } else if attempt < 90 {
+                        statusMessage = "Still downloading... please wait..."
                     } else {
                         statusMessage = "Almost ready..."
                     }

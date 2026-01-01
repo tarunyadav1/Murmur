@@ -62,6 +62,25 @@ final class PythonEnvironmentService: ObservableObject {
         appSupportURL.appendingPathComponent("VoiceSamples", isDirectory: true)
     }
 
+    private var versionFile: URL {
+        appSupportURL.appendingPathComponent(".setup_version")
+    }
+
+    /// Current app version from bundle
+    private var currentAppVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+    }
+
+    /// Build number for more granular version control
+    private var currentBuildNumber: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+    }
+
+    /// Combined version string for comparison
+    private var fullVersionString: String {
+        "\(currentAppVersion).\(currentBuildNumber)"
+    }
+
     // MARK: - Setup
 
     /// Check if environment is already set up
@@ -69,11 +88,21 @@ final class PythonEnvironmentService: ObservableObject {
         let pythonExists = FileManager.default.fileExists(atPath: venvPythonURL.path)
         let serverExists = FileManager.default.fileExists(atPath: serverScriptURL.path)
 
+        // Check if version matches - force rebuild if app was updated
+        let versionMatches = checkVersionMatch()
+
+        if !versionMatches && pythonExists {
+            logger.info("App version changed (\(self.fullVersionString)), rebuilding environment...")
+            // Remove old environment to force fresh setup
+            try? FileManager.default.removeItem(at: venvURL)
+            return false
+        }
+
         if pythonExists && serverExists {
             pythonPath = venvPythonURL.path
             setupState = .ready
             isReady = true
-            logger.info("Existing environment found and verified")
+            logger.info("Existing environment found and verified (version \(self.fullVersionString))")
 
             // Always sync server files and voice samples on launch
             await syncServerFiles()
@@ -83,6 +112,36 @@ final class PythonEnvironmentService: ObservableObject {
         }
 
         return false
+    }
+
+    /// Check if stored version matches current app version
+    private func checkVersionMatch() -> Bool {
+        guard FileManager.default.fileExists(atPath: versionFile.path) else {
+            return false
+        }
+
+        do {
+            let storedVersion = try String(contentsOf: versionFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let matches = storedVersion == fullVersionString
+            if !matches {
+                logger.info("Version mismatch: stored=\(storedVersion), current=\(self.fullVersionString)")
+            }
+            return matches
+        } catch {
+            logger.warning("Could not read version file: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Save current version after successful setup
+    private func saveVersion() {
+        do {
+            try fullVersionString.write(to: versionFile, atomically: true, encoding: .utf8)
+            logger.info("Saved setup version: \(self.fullVersionString)")
+        } catch {
+            logger.warning("Could not save version file: \(error.localizedDescription)")
+        }
     }
 
     /// Sync server files from bundle to Application Support (ensures latest code)
@@ -205,13 +264,22 @@ final class PythonEnvironmentService: ObservableObject {
             // Install requirements
             let requirementsPath = serverDirectory.appendingPathComponent("requirements.txt").path
             _ = try await runCommand(venvPipURL.path, arguments: ["install", "-r", requirementsPath], timeout: 600)
-            setupProgress = 0.9
+            setupProgress = 0.85
+
+            // Strip code signatures from pip-installed packages to avoid Team ID conflicts
+            statusMessage = "Finalizing setup..."
+            await stripCodeSignatures()
+            setupProgress = 0.95
 
             setupProgress = 1.0
             pythonPath = venvPythonURL.path
             setupState = .ready
             isReady = true
             statusMessage = "Ready"
+
+            // Save version so we know which version this environment was built for
+            saveVersion()
+
             logger.info("Python environment setup complete")
 
         } catch {
@@ -307,6 +375,50 @@ final class PythonEnvironmentService: ObservableObject {
         // Copy the entire VoiceSamples folder
         try fm.copyItem(at: bundleVoiceSamplesDir, to: self.voiceSamplesURL)
         logger.info("Voice samples copied to \(self.voiceSamplesURL.path)")
+    }
+
+    /// Re-sign pip-installed packages with ad-hoc signature to avoid Team ID conflicts
+    /// This is necessary because pip packages are signed with different Team IDs
+    private func stripCodeSignatures() async {
+        let venvPath = venvURL.path
+
+        guard FileManager.default.fileExists(atPath: venvPath) else {
+            logger.warning("Venv directory not found, skipping re-signing")
+            return
+        }
+
+        logger.info("Re-signing pip packages with ad-hoc signature...")
+
+        // Use bash to run find and codesign - this matches exactly what works manually
+        let bashProcess = Process()
+        bashProcess.executableURL = URL(fileURLWithPath: "/bin/bash")
+        bashProcess.arguments = [
+            "-c",
+            "find '\(venvPath)' -type f \\( -name '*.so' -o -name '*.dylib' \\) -exec /usr/bin/codesign --force --sign - {} \\;"
+        ]
+
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        bashProcess.standardOutput = outputPipe
+        bashProcess.standardError = errorPipe
+
+        do {
+            try bashProcess.run()
+            bashProcess.waitUntilExit()
+
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            if let errorOutput = String(data: errorData, encoding: .utf8), !errorOutput.isEmpty {
+                logger.debug("Codesign output: \(errorOutput)")
+            }
+
+            if bashProcess.terminationStatus == 0 {
+                logger.info("Pip packages re-signed successfully")
+            } else {
+                logger.warning("Codesign finished with status \(bashProcess.terminationStatus)")
+            }
+        } catch {
+            logger.warning("Failed to re-sign packages: \(error.localizedDescription)")
+        }
     }
 
     private func runCommand(_ command: String, arguments: [String], timeout: TimeInterval = 120) async throws -> String {

@@ -10,6 +10,7 @@
 		0709B9D315755E7B821D9759 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E49B8BFD4899D49213E66351 /* ContentView.swift */; };
 		0774269F5921434A9A489566 /* PythonEnvironmentService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8661EBC33B2EBD145F77AE85 /* PythonEnvironmentService.swift */; };
 		083CC573491A17EF306AA1C4 /* VoiceSamples in Resources */ = {isa = PBXBuildFile; fileRef = 23D513FB387EA3E0588EC803 /* VoiceSamples */; };
+		AABBCC001122334455667788 /* KokoroModel in Resources */ = {isa = PBXBuildFile; fileRef = AABBCC112233445566778899 /* KokoroModel */; };
 		091DA5ECE6DB8D74FBDB4177 /* HistoryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EA1AEE03A3F6FD57AB93E31 /* HistoryService.swift */; };
 		11300564EB1E60582178050A /* CoachMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82D938797992DD72E68EE61E /* CoachMark.swift */; };
 		181BEB9EAA26E055A017D8EB /* LicenseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA906962D51D285DDC540ABB /* LicenseView.swift */; };
@@ -418,6 +419,7 @@
 		23A78472DEB6F720363BC7A4 /* 113c47c191e98929509b5fba963bb15a6f8474 */ = {isa = PBXFileReference; path = 113c47c191e98929509b5fba963bb15a6f8474; sourceTree = "<group>"; };
 		23B49A6E226D9EC78705F5FE /* b64838ef22f42363726481fbfcb7a5c1878b17 */ = {isa = PBXFileReference; path = b64838ef22f42363726481fbfcb7a5c1878b17; sourceTree = "<group>"; };
 		23D513FB387EA3E0588EC803 /* VoiceSamples */ = {isa = PBXFileReference; lastKnownFileType = folder; name = VoiceSamples; path = Resources/VoiceSamples; sourceTree = SOURCE_ROOT; };
+		AABBCC112233445566778899 /* KokoroModel */ = {isa = PBXFileReference; lastKnownFileType = folder; name = KokoroModel; path = Resources/KokoroModel; sourceTree = SOURCE_ROOT; };
 		24290E3F038832D696F9BEC5 /* 8c6f53d553154af9479985c824194b596e553d */ = {isa = PBXFileReference; path = 8c6f53d553154af9479985c824194b596e553d; sourceTree = "<group>"; };
 		244BD701D54294A590572194 /* 88b43df7009891dd34872cdce6002b961287a9 */ = {isa = PBXFileReference; path = 88b43df7009891dd34872cdce6002b961287a9; sourceTree = "<group>"; };
 		246596F82D9B8B26BD20C8A1 /* ca08d8f6cb2a7f8e2624f23ff52bd679e2e72a */ = {isa = PBXFileReference; path = ca08d8f6cb2a7f8e2624f23ff52bd679e2e72a; sourceTree = "<group>"; };
@@ -4213,6 +4215,7 @@
 				9B930186E266C92136660B30 /* Python */,
 				E59C4D48B999C332DB359459 /* Server */,
 				23D513FB387EA3E0588EC803 /* VoiceSamples */,
+				AABBCC112233445566778899 /* KokoroModel */,
 				FFC2CD5EE0AA48736CB742E5 /* .git */,
 				CF293304B949263EA51C5C97 /* Extensions */,
 				C74E5BED4E8ED3C6D68A041E /* Models */,
@@ -7350,6 +7353,7 @@
 				3F5ABB961351EAC2C8596196 /* Python in Resources */,
 				183844C33831A5DC50684D45 /* Server in Resources */,
 				083CC573491A17EF306AA1C4 /* VoiceSamples in Resources */,
+				AABBCC001122334455667788 /* KokoroModel in Resources */,
 				3E03FC56C80AD837F3ACAF3F /* applypatch-msg.sample in Resources */,
 				ADEB155B937061E6BE381CD4 /* commit-msg.sample in Resources */,
 				83545B143A68E12807C25E85 /* fsmonitor-watchman.sample in Resources */,

@@ -9,8 +9,22 @@ Uses MLX-accelerated Kokoro model (82M params) for instant TTS generation
 import os
 from pathlib import Path
 
+def get_bundled_model_path():
+    """Get the path to the bundled Kokoro model in the app Resources"""
+    # Check for bundled model path from environment (set by the app)
+    bundled_path = os.environ.get("MURMUR_KOKORO_MODEL_PATH")
+    if bundled_path and Path(bundled_path).exists():
+        return bundled_path
+    return None
+
 def get_local_model_path():
     """Get the local path to the cached Kokoro model, or None if not cached"""
+    # First check for bundled model
+    bundled = get_bundled_model_path()
+    if bundled:
+        return bundled
+
+    # Fall back to HuggingFace cache
     cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
     model_dir = cache_dir / "models--mlx-community--Kokoro-82M-bf16"
 
@@ -27,17 +41,23 @@ def is_model_cached():
     """Check if the Kokoro model is already cached locally"""
     return get_local_model_path() is not None
 
-# Enable offline mode only if model is already cached
-# This allows first-time download but prevents network calls afterward
-if is_model_cached():
+# Check if we have a bundled model (from the app) or cached model
+_BUNDLED_MODEL = get_bundled_model_path() is not None
+_CACHED_MODEL = get_local_model_path() is not None
+
+# Only enable offline mode if we have a cached HF model (not bundled)
+# The bundled model works better without offline mode restrictions
+if _CACHED_MODEL and not _BUNDLED_MODEL:
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     os.environ["HF_DATASETS_OFFLINE"] = "1"
-    # Also set short timeouts in case any library ignores offline mode
     os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "1"
     os.environ["REQUESTS_TIMEOUT"] = "1"
     _OFFLINE_MODE = True
 else:
+    # For bundled model, just set reasonable timeouts to prevent hanging
+    os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "5"
+    os.environ["REQUESTS_TIMEOUT"] = "5"
     _OFFLINE_MODE = False
 
 import io
@@ -88,6 +108,7 @@ KOKORO_VOICES = {
     "am_michael": {"name": "Michael", "gender": "male", "accent": "American", "description": "Trustworthy"},
     "am_onyx": {"name": "Onyx", "gender": "male", "accent": "American", "description": "Deep and smooth"},
     "am_puck": {"name": "Puck", "gender": "male", "accent": "American", "description": "Playful"},
+    "am_santa": {"name": "Santa", "gender": "male", "accent": "American", "description": "Jolly and warm"},
 
     # British Female
     "bf_alice": {"name": "Alice", "gender": "female", "accent": "British", "description": "Elegant"},
@@ -104,7 +125,7 @@ KOKORO_VOICES = {
     # Japanese Female
     "jf_alpha": {"name": "Alpha", "gender": "female", "accent": "Japanese", "description": "Clear Japanese"},
     "jf_gongitsune": {"name": "Gongitsune", "gender": "female", "accent": "Japanese", "description": "Traditional"},
-    "jf_nezuko": {"name": "Nezuko", "gender": "female", "accent": "Japanese", "description": "Soft and gentle"},
+    "jf_nezumi": {"name": "Nezumi", "gender": "female", "accent": "Japanese", "description": "Soft and gentle"},
     "jf_tebukuro": {"name": "Tebukuro", "gender": "female", "accent": "Japanese", "description": "Warm"},
 
     # Japanese Male
@@ -122,17 +143,13 @@ KOKORO_VOICES = {
     "zm_yunxia": {"name": "Yunxia", "gender": "male", "accent": "Chinese", "description": "Deep Mandarin"},
     "zm_yunyang": {"name": "Yunyang", "gender": "male", "accent": "Chinese", "description": "Natural Mandarin"},
 
-    # Korean Female
-    "kf_sarah": {"name": "Sarah (KR)", "gender": "female", "accent": "Korean", "description": "Korean female"},
-
-    # Korean Male
-    "km_kevin": {"name": "Kevin (KR)", "gender": "male", "accent": "Korean", "description": "Korean male"},
 
     # Spanish Female
     "ef_dora": {"name": "Dora", "gender": "female", "accent": "Spanish", "description": "Spanish female"},
 
     # Spanish Male
     "em_alex": {"name": "Alex", "gender": "male", "accent": "Spanish", "description": "Spanish male"},
+    "em_santa": {"name": "Santa (ES)", "gender": "male", "accent": "Spanish", "description": "Spanish Santa"},
 
     # French Female
     "ff_siwis": {"name": "Siwis", "gender": "female", "accent": "French", "description": "French female"},
