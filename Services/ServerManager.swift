@@ -286,7 +286,8 @@ final class ServerManager: ObservableObject {
                 logger.error("Server reported error: \(message)")
                 statusMessage = "Error loading model"
                 // Don't immediately fail - model might recover
-                if attempt > 5 {
+                // Give more attempts since model loading can take a while on first run
+                if attempt > 30 {
                     return false
                 }
 

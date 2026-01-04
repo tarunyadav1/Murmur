@@ -212,32 +212,60 @@ class HealthResponse(BaseModel):
 def load_kokoro_sync():
     """Load the Kokoro model (called in background thread)"""
     global kokoro_model, model_loading, model_load_error
+    import traceback
 
     model_loading = True
     model_load_error = None
 
+    # Write to a debug log file for troubleshooting
+    log_path = Path.home() / "Library" / "Application Support" / "Murmur" / "model_load.log"
+
+    def write_log(msg):
+        try:
+            with open(log_path, "a") as f:
+                f.write(f"{msg}\n")
+            logger.info(msg)
+        except:
+            logger.info(msg)
+
     try:
+        write_log(f"=== Model loading started ===")
+        write_log(f"MURMUR_KOKORO_MODEL_PATH env: {os.environ.get('MURMUR_KOKORO_MODEL_PATH', 'NOT SET')}")
+
         from mlx_audio.tts.generate import load_model
+        write_log("mlx_audio imported successfully")
 
         # Try to use local path directly to avoid any network calls
         local_path = get_local_model_path()
+        write_log(f"Local path resolved to: {local_path}")
 
-        if local_path and _OFFLINE_MODE:
-            logger.info(f"Loading Kokoro model from LOCAL path: {local_path}")
-            logger.info("Offline mode enabled - voices will load from local cache")
+        if local_path:
+            # Check what files exist at the path
+            if Path(local_path).exists():
+                files = list(Path(local_path).iterdir())
+                write_log(f"Files at local_path: {[f.name for f in files]}")
+            else:
+                write_log(f"WARNING: local_path does not exist!")
+
+            # Always use local/bundled model when available
+            write_log(f"Loading Kokoro model from LOCAL path: {local_path}")
             kokoro_model = load_model(local_path)
         else:
             # Fallback to HuggingFace repo (will download if needed)
             model_name = "mlx-community/Kokoro-82M-bf16"
-            logger.info(f"Loading Kokoro model from HuggingFace: {model_name}")
+            write_log(f"Loading Kokoro model from HuggingFace: {model_name}")
             kokoro_model = load_model(model_name)
 
-        logger.info("Kokoro model loaded successfully!")
+        write_log("Kokoro model loaded successfully!")
         model_loading = False
         return True
 
     except Exception as e:
-        logger.error(f"Failed to load Kokoro model: {e}")
+        error_msg = f"Failed to load Kokoro model: {e}"
+        full_traceback = traceback.format_exc()
+        write_log(f"ERROR: {error_msg}")
+        write_log(f"Full traceback:\n{full_traceback}")
+        logger.error(error_msg)
         model_load_error = str(e)
         model_loading = False
         return False
