@@ -212,6 +212,38 @@ final class TTSService: ObservableObject {
         return false
     }
 
+    // MARK: - Language Support
+
+    /// Get all voices for a specific language
+    func voices(for language: Language) -> [KokoroVoice] {
+        kokoroVoices.filter { $0.language == language }
+    }
+
+    /// Get the default voice for a language (first female voice, or first available)
+    func defaultVoice(for language: Language) -> KokoroVoice? {
+        let languageVoices = voices(for: language)
+        // Prefer female voices as default
+        return languageVoices.first { $0.gender == "female" } ?? languageVoices.first
+    }
+
+    /// Get the currently selected voice's language
+    var selectedVoiceLanguage: Language? {
+        kokoroVoices.first { $0.id == selectedVoiceId }?.language
+    }
+
+    /// Get available languages based on loaded voices
+    var availableLanguages: [Language] {
+        let languages = Set(kokoroVoices.compactMap { $0.language })
+        return Language.allCases.filter { languages.contains($0) }
+    }
+
+    /// Switch to a voice for the specified language
+    func switchToLanguage(_ language: Language) {
+        if let voice = defaultVoice(for: language) {
+            selectedVoiceId = voice.id
+        }
+    }
+
     // MARK: - Speech Generation
 
     /// Cancel any ongoing generation

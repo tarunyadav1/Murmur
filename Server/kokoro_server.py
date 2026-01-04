@@ -144,12 +144,12 @@ KOKORO_VOICES = {
     "zm_yunyang": {"name": "Yunyang", "gender": "male", "accent": "Chinese", "description": "Natural Mandarin"},
 
 
-    # Spanish Female
-    "ef_dora": {"name": "Dora", "gender": "female", "accent": "Spanish", "description": "Spanish female"},
+    # Spanish Female (reads native Spanish text)
+    "ef_dora": {"name": "Dora", "gender": "female", "accent": "Spanish", "description": "Native Spanish"},
 
-    # Spanish Male
-    "em_alex": {"name": "Alex", "gender": "male", "accent": "Spanish", "description": "Spanish male"},
-    "em_santa": {"name": "Santa (ES)", "gender": "male", "accent": "Spanish", "description": "Spanish Santa"},
+    # Spanish Male (reads native Spanish text)
+    "em_alex": {"name": "Alex", "gender": "male", "accent": "Spanish", "description": "Native Spanish"},
+    "em_santa": {"name": "Santa (ES)", "gender": "male", "accent": "Spanish", "description": "Native Spanish"},
 
     # French Female
     "ff_siwis": {"name": "Siwis", "gender": "female", "accent": "French", "description": "French female"},
@@ -181,6 +181,29 @@ class TTSRequest(BaseModel):
     text: str = Field(..., description="Text to synthesize")
     voice: str = Field(default="af_heart", description="Voice ID to use")
     speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Speech speed multiplier")
+    lang_code: Optional[str] = Field(default=None, description="Language code (a=American, b=British, e=Spanish, j=Japanese, z=Chinese, f=French, h=Hindi, i=Italian, p=Portuguese). Auto-detected from voice if not provided.")
+
+
+# Language code mapping from voice prefix
+VOICE_LANG_CODES = {
+    'a': 'a',  # American English
+    'b': 'b',  # British English
+    'j': 'j',  # Japanese
+    'z': 'z',  # Mandarin Chinese
+    'e': 'e',  # Spanish
+    'f': 'f',  # French
+    'h': 'h',  # Hindi
+    'i': 'i',  # Italian
+    'p': 'p',  # Portuguese
+}
+
+
+def get_lang_code_from_voice(voice_id: str) -> str:
+    """Extract language code from voice ID prefix (e.g., 'ef_dora' -> 'e' for Spanish)"""
+    if voice_id and len(voice_id) >= 1:
+        prefix = voice_id[0].lower()
+        return VOICE_LANG_CODES.get(prefix, 'a')
+    return 'a'  # Default to American English
 
 
 class TTSResponse(BaseModel):
@@ -330,9 +353,13 @@ async def generate_speech(request: TTSRequest):
     try:
         start_time = time.time()
 
-        # Generate audio using Kokoro
+        # Determine language code - use provided or auto-detect from voice
+        lang_code = request.lang_code or get_lang_code_from_voice(voice)
+        logger.info(f"Using lang_code='{lang_code}' for voice '{voice}'")
+
+        # Generate audio using Kokoro with proper language code
         audio_arrays = []
-        for result in kokoro_model.generate(request.text, voice=voice, speed=request.speed):
+        for result in kokoro_model.generate(request.text, voice=voice, speed=request.speed, lang_code=lang_code):
             audio_arrays.append(np.array(result.audio))
 
         # Combine segments
