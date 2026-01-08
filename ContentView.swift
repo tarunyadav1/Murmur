@@ -31,6 +31,11 @@ struct ContentView: View {
     @State private var isDropTargeted = false
     @State private var createButtonPressed = false
 
+    // Language detection
+    @State private var detectedLanguage: Language?
+    @State private var showLanguageSuggestion = false
+    @State private var languageDetectionTask: Task<Void, Never>?
+
     private var wordCount: Int {
         text.split(separator: " ").count
     }
@@ -129,6 +134,128 @@ struct ContentView: View {
                 )
             }
         }
+        .onChange(of: text) { _, newText in
+            detectLanguage(in: newText)
+        }
+    }
+
+    // MARK: - Language Detection
+
+    /// Current voice's language
+    private var currentVoiceLanguage: Language? {
+        ttsService.kokoroVoices
+            .first { $0.id == ttsService.selectedVoiceId }?
+            .language
+    }
+
+    /// Whether the detected language differs from the selected voice's language
+    private var languageMismatch: Bool {
+        guard let detected = detectedLanguage,
+              let current = currentVoiceLanguage else { return false }
+        // English US and UK are compatible
+        if (detected == .englishUS || detected == .englishUK) &&
+           (current == .englishUS || current == .englishUK) {
+            return false
+        }
+        return detected != current
+    }
+
+    /// Detect language from text with debouncing
+    private func detectLanguage(in text: String) {
+        // Cancel any existing detection task
+        languageDetectionTask?.cancel()
+
+        // Don't detect for very short text (10 chars minimum for non-Latin, 15 for Latin)
+        let minLength = text.unicodeScalars.contains { !$0.isASCII } ? 10 : 15
+        guard text.count >= minLength else {
+            detectedLanguage = nil
+            showLanguageSuggestion = false
+            return
+        }
+
+        // Debounce: wait 500ms before detecting
+        languageDetectionTask = Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+
+            let detected = LanguageDetectionService.shared.detectLanguageWithConfidence(from: text)
+
+            await MainActor.run {
+                if let result = detected, result.confidence > 0.5 {
+                    let newLanguage = result.language
+                    self.detectedLanguage = newLanguage
+
+                    // Auto-switch if language doesn't match current voice
+                    if self.languageMismatch {
+                        // Auto-switch to detected language
+                        ttsService.switchToLanguage(newLanguage)
+                        // Show toast notification
+                        ToastManager.shared.show(
+                            .success,
+                            message: "Switched to \(newLanguage.displayName) voice"
+                        )
+                        self.showLanguageSuggestion = false
+                    }
+                } else {
+                    self.detectedLanguage = nil
+                    self.showLanguageSuggestion = false
+                }
+            }
+        }
+    }
+
+    /// Switch to a voice matching the detected language
+    private func switchToDetectedLanguage() {
+        guard let targetLanguage = detectedLanguage else { return }
+
+        ttsService.switchToLanguage(targetLanguage)
+        withAnimation {
+            showLanguageSuggestion = false
+        }
+    }
+
+    /// Language suggestion banner
+    @ViewBuilder
+    private func languageSuggestionBanner(for language: Language) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: language.icon)
+                .font(.title3)
+                .foregroundStyle(.tint)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(language.displayName) detected")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                Text("Switch voice for better pronunciation?")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button("Switch") {
+                switchToDetectedLanguage()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+
+            Button {
+                withAnimation {
+                    showLanguageSuggestion = false
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(12)
+        .background(.tint.opacity(0.1), in: RoundedRectangle(cornerRadius: MurmurDesign.Radius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: MurmurDesign.Radius.md)
+                .strokeBorder(.tint.opacity(0.3), lineWidth: 1)
+        )
     }
 
     // MARK: - Main Content Panel
@@ -143,9 +270,20 @@ struct ContentView: View {
             // Hero: Text Input Area
             VStack(alignment: .leading, spacing: MurmurDesign.Spacing.md) {
                 heroTextEditor
+
+                // Language suggestion banner
+                if showLanguageSuggestion, let detected = detectedLanguage {
+                    languageSuggestionBanner(for: detected)
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .top).combined(with: .opacity),
+                            removal: .opacity
+                        ))
+                }
+
                 actionButtonsRow
             }
             .padding(MurmurDesign.Spacing.lg)
+            .animation(MurmurDesign.Animations.quick, value: showLanguageSuggestion)
 
             Spacer(minLength: 0)
 
@@ -461,6 +599,11 @@ struct ContentView: View {
                     searchText: $voiceSearchText,
                     onRetryLoadVoices: {
                         await ttsService.refreshVoices()
+                    },
+                    suggestedLanguage: detectedLanguage,
+                    onLanguageSelected: { _ in
+                        // Dismiss suggestion when user manually selects a voice
+                        showLanguageSuggestion = false
                     }
                 )
 
@@ -1323,9 +1466,29 @@ struct KokoroVoiceSelector: View {
     let voices: [KokoroVoice]
     @Binding var searchText: String
     var onRetryLoadVoices: (() async -> Void)? = nil
+    var suggestedLanguage: Language? = nil
+    var onLanguageSelected: ((Language) -> Void)? = nil
 
     @State private var isExpanded = false
     @State private var isRetrying = false
+    @State private var expandedLanguages: Set<Language> = []
+
+    /// Group voices by language
+    private var voicesByLanguage: [(language: Language, voices: [KokoroVoice])] {
+        let grouped = Dictionary(grouping: voices) { voice -> Language in
+            voice.language ?? .englishUS
+        }
+
+        // Sort languages: suggested first, then by display name
+        return Language.allCases
+            .filter { grouped[$0] != nil }
+            .sorted { lang1, lang2 in
+                if lang1 == suggestedLanguage { return true }
+                if lang2 == suggestedLanguage { return false }
+                return lang1.displayName < lang2.displayName
+            }
+            .map { ($0, grouped[$0] ?? []) }
+    }
 
     private var filteredVoices: [KokoroVoice] {
         if searchText.isEmpty {
@@ -1346,10 +1509,29 @@ struct KokoroVoiceSelector: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Voice")
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .foregroundStyle(.secondary)
+            HStack {
+                Text("Voice")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                // Show current language badge
+                if let voice = selectedVoice, let lang = voice.language {
+                    HStack(spacing: 4) {
+                        Image(systemName: lang.icon)
+                            .font(.caption2)
+                        Text(lang.shortName)
+                            .font(.caption)
+                            .fontWeight(.medium)
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.quaternary, in: Capsule())
+                }
+            }
 
             // Empty state with retry
             if voices.isEmpty {
@@ -1388,6 +1570,10 @@ struct KokoroVoiceSelector: View {
                 Button {
                     withAnimation(.spring(duration: 0.25, bounce: 0.2)) {
                         isExpanded.toggle()
+                        // Auto-expand the selected voice's language
+                        if isExpanded, let lang = selectedVoice?.language {
+                            expandedLanguages.insert(lang)
+                        }
                     }
                 } label: {
                     HStack {
@@ -1422,74 +1608,218 @@ struct KokoroVoiceSelector: View {
                 }
                 .buttonStyle(.plain)
 
-                // Expanded list
+                // Expanded list with language grouping
                 if isExpanded {
-                VStack(spacing: 10) {
-                    // Search
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.tertiary)
-                            .font(.caption)
-                        TextField("Search voices...", text: $searchText)
-                            .textFieldStyle(.plain)
-                            .font(.subheadline)
-                    }
-                    .padding(10)
-                    .background(.background, in: RoundedRectangle(cornerRadius: 8))
+                    VStack(spacing: 10) {
+                        // Search
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(.tertiary)
+                                .font(.caption)
+                            TextField("Search voices...", text: $searchText)
+                                .textFieldStyle(.plain)
+                                .font(.subheadline)
+                        }
+                        .padding(10)
+                        .background(.background, in: RoundedRectangle(cornerRadius: 8))
 
-                    // Voice list
-                    ScrollView {
-                        VStack(spacing: 4) {
-                            ForEach(filteredVoices) { voice in
-                                Button {
-                                    selectedVoiceId = voice.id
-                                    withAnimation(.spring(duration: 0.2)) {
-                                        isExpanded = false
-                                        searchText = ""
-                                    }
-                                } label: {
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            HStack(spacing: 6) {
-                                                Text(voice.name)
-                                                    .foregroundStyle(.primary)
-                                                if !voice.description.isEmpty {
-                                                    Text("– \(voice.description)")
-                                                        .foregroundStyle(.tertiary)
+                        // Voice list grouped by language
+                        ScrollView {
+                            VStack(spacing: 8) {
+                                if searchText.isEmpty {
+                                    // Grouped view
+                                    ForEach(voicesByLanguage, id: \.language) { group in
+                                        LanguageVoiceGroup(
+                                            language: group.language,
+                                            voices: group.voices,
+                                            selectedVoiceId: $selectedVoiceId,
+                                            isExpanded: expandedLanguages.contains(group.language),
+                                            isSuggested: group.language == suggestedLanguage,
+                                            onToggle: {
+                                                withAnimation(.spring(duration: 0.2)) {
+                                                    if expandedLanguages.contains(group.language) {
+                                                        expandedLanguages.remove(group.language)
+                                                    } else {
+                                                        expandedLanguages.insert(group.language)
+                                                    }
+                                                }
+                                            },
+                                            onVoiceSelected: { voiceId in
+                                                selectedVoiceId = voiceId
+                                                withAnimation(.spring(duration: 0.2)) {
+                                                    isExpanded = false
+                                                    searchText = ""
+                                                }
+                                                if let lang = group.language as Language? {
+                                                    onLanguageSelected?(lang)
                                                 }
                                             }
-                                            Text("\(voice.gender.capitalized) • \(voice.accent)")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        Spacer()
-                                        if selectedVoiceId == voice.id {
-                                            Image(systemName: "checkmark.circle.fill")
-                                                .foregroundStyle(.tint)
-                                        }
+                                        )
+                                    }
+                                } else {
+                                    // Flat filtered view
+                                    ForEach(filteredVoices) { voice in
+                                        VoiceRowButton(
+                                            voice: voice,
+                                            isSelected: selectedVoiceId == voice.id,
+                                            onSelect: {
+                                                selectedVoiceId = voice.id
+                                                withAnimation(.spring(duration: 0.2)) {
+                                                    isExpanded = false
+                                                    searchText = ""
+                                                }
+                                            }
+                                        )
                                     }
                                 }
-                                .buttonStyle(.plain)
-                                .padding(10)
-                                .background(
-                                    selectedVoiceId == voice.id
-                                        ? Color.accentColor.opacity(0.1)
-                                        : Color.clear,
-                                    in: RoundedRectangle(cornerRadius: 8)
-                                )
                             }
                         }
+                        .frame(maxHeight: 300)
                     }
-                    .frame(maxHeight: 250)
-                }
-                .padding(12)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                .transition(.asymmetric(
-                    insertion: .scale(scale: 0.95, anchor: .top).combined(with: .opacity),
-                    removal: .opacity
-                ))
+                    .padding(12)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.95, anchor: .top).combined(with: .opacity),
+                        removal: .opacity
+                    ))
                 }
             }
         }
+        .onAppear {
+            // Auto-expand suggested language if set
+            if let suggested = suggestedLanguage {
+                expandedLanguages.insert(suggested)
+            }
+        }
+        .onChange(of: suggestedLanguage) { _, newValue in
+            if let lang = newValue {
+                withAnimation {
+                    expandedLanguages.insert(lang)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Language Voice Group
+
+struct LanguageVoiceGroup: View {
+    let language: Language
+    let voices: [KokoroVoice]
+    @Binding var selectedVoiceId: String
+    let isExpanded: Bool
+    let isSuggested: Bool
+    let onToggle: () -> Void
+    let onVoiceSelected: (String) -> Void
+
+    private var hasSelectedVoice: Bool {
+        voices.contains { $0.id == selectedVoiceId }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // Language header
+            Button(action: onToggle) {
+                HStack(spacing: 8) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 12)
+
+                    Image(systemName: language.icon)
+                        .font(.caption)
+                        .foregroundStyle(isSuggested ? Color.accentColor : Color.secondary)
+
+                    Text(language.displayName)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundStyle(hasSelectedVoice ? .primary : .secondary)
+
+                    if isSuggested {
+                        Text("Detected")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.tint, in: Capsule())
+                    }
+
+                    Spacer()
+
+                    Text("\(voices.count)")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+
+                    if hasSelectedVoice {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.tint)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 8)
+            .background(isSuggested ? Color.accentColor.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+
+            // Voices in this language
+            if isExpanded {
+                VStack(spacing: 2) {
+                    ForEach(voices) { voice in
+                        VoiceRowButton(
+                            voice: voice,
+                            isSelected: selectedVoiceId == voice.id,
+                            onSelect: { onVoiceSelected(voice.id) }
+                        )
+                        .padding(.leading, 20)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Voice Row Button
+
+struct VoiceRowButton: View {
+    let voice: KokoroVoice
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(voice.name)
+                            .foregroundStyle(.primary)
+                        Text(voice.gender == "female" ? "F" : "M")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
+                        if !voice.description.isEmpty {
+                            Text("– \(voice.description)")
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.tint)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(10)
+        .background(
+            isSelected ? Color.accentColor.opacity(0.1) : Color.clear,
+            in: RoundedRectangle(cornerRadius: 8)
+        )
     }
 }

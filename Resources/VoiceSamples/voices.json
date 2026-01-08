@@ -1,7 +1,7 @@
 {
   "voices": [
     {
-      "id": "narrator_female",
+      "id": "af_bella",
       "name": "Female Narrator",
       "description": "Warm, professional female narrator",
       "file": "narrator_female.wav",
@@ -9,7 +9,7 @@
       "style": "narrator"
     },
     {
-      "id": "narrator_male",
+      "id": "am_eric",
       "name": "Male Narrator",
       "description": "Deep, distinguished male narrator",
       "file": "narrator_male.wav",
@@ -17,7 +17,7 @@
       "style": "narrator"
     },
     {
-      "id": "casual_female",
+      "id": "af_nova",
       "name": "Casual Female",
       "description": "Bright, friendly conversational voice",
       "file": "casual_female.wav",
@@ -25,7 +25,7 @@
       "style": "casual"
     },
     {
-      "id": "professional_male",
+      "id": "am_michael",
       "name": "Professional Male",
       "description": "Clear, confident business voice",
       "file": "professional_male.wav",
@@ -33,7 +33,7 @@
       "style": "professional"
     },
     {
-      "id": "paimon",
+      "id": "af_sky",
       "name": "Paimon",
       "description": "High-pitched, energetic fairy companion",
       "file": "paimon_2.wav",
@@ -41,7 +41,7 @@
       "style": "character"
     },
     {
-      "id": "zhongli",
+      "id": "am_onyx",
       "name": "Zhongli",
       "description": "Deep, authoritative, wise gentleman",
       "file": "zhongli_1.wav",
@@ -49,7 +49,7 @@
       "style": "character"
     },
     {
-      "id": "nahida",
+      "id": "bf_lily",
       "name": "Nahida",
       "description": "Soft, gentle, wise young voice",
       "file": "nahida_1.wav",
@@ -57,7 +57,7 @@
       "style": "character"
     },
     {
-      "id": "alhaitham",
+      "id": "bm_george",
       "name": "Alhaitham",
       "description": "Calm, intellectual, measured tone",
       "file": "alhaitham_2.wav",
@@ -65,7 +65,7 @@
       "style": "character"
     },
     {
-      "id": "neuvillette",
+      "id": "bm_daniel",
       "name": "Neuvillette",
       "description": "Formal, dignified, judicial voice",
       "file": "neuvillette_1.wav",
@@ -73,7 +73,7 @@
       "style": "character"
     },
     {
-      "id": "noelle",
+      "id": "bf_emma",
       "name": "Noelle",
       "description": "Polite, helpful, earnest young woman",
       "file": "noelle_1.wav",
@@ -81,7 +81,7 @@
       "style": "character"
     },
     {
-      "id": "furina",
+      "id": "af_nicole",
       "name": "Furina",
       "description": "Dramatic, theatrical, expressive diva",
       "file": "furina_1.wav",
@@ -89,7 +89,7 @@
       "style": "character"
     },
     {
-      "id": "cyno",
+      "id": "am_fenrir",
       "name": "Cyno",
       "description": "Serious, stoic warrior voice",
       "file": "cyno_1.wav",
@@ -97,7 +97,7 @@
       "style": "character"
     },
     {
-      "id": "tighnari",
+      "id": "am_liam",
       "name": "Tighnari",
       "description": "Sharp, knowledgeable forest ranger",
       "file": "tighnari_1.wav",
@@ -105,7 +105,7 @@
       "style": "character"
     },
     {
-      "id": "navia",
+      "id": "af_sarah",
       "name": "Navia",
       "description": "Confident, warm leader voice",
       "file": "navia_1.wav",
