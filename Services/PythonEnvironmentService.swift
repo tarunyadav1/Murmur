@@ -62,6 +62,17 @@ final class PythonEnvironmentService: ObservableObject {
         appSupportURL.appendingPathComponent("VoiceSamples", isDirectory: true)
     }
 
+    private var wheelsURL: URL {
+        appSupportURL.appendingPathComponent("PythonWheels", isDirectory: true)
+    }
+
+    /// Bundled wheels in app Resources
+    private var bundledWheelsURL: URL? {
+        guard let resourcePath = Bundle.main.resourcePath else { return nil }
+        return URL(fileURLWithPath: resourcePath)
+            .appendingPathComponent("PythonWheels")
+    }
+
     private var versionFile: URL {
         appSupportURL.appendingPathComponent(".setup_version")
     }
@@ -252,18 +263,34 @@ final class PythonEnvironmentService: ObservableObject {
             _ = try await runCommand(bundledPython.path, arguments: ["-m", "venv", venvPath])
             logger.info("Created virtual environment at \(venvPath)")
 
-            // Step 5: Install dependencies
+            // Step 5: Copy bundled wheels
             setupState = .installingDependencies
-            statusMessage = "Installing voice engine..."
+            statusMessage = "Preparing voice engine..."
             setupProgress = 0.5
 
-            // Upgrade pip first
-            _ = try await runCommand(venvPipURL.path, arguments: ["install", "--upgrade", "pip"], timeout: 120)
-            setupProgress = 0.7
+            try await copyBundledWheels()
+            setupProgress = 0.55
 
-            // Install requirements
+            // Step 6: Install dependencies from bundled wheels (offline)
+            statusMessage = "Installing voice engine..."
+            setupProgress = 0.6
+
+            // Upgrade pip first (from bundled wheel if available)
+            _ = try await runCommand(venvPipURL.path, arguments: [
+                "install", "--upgrade", "pip",
+                "--no-index",
+                "--find-links", wheelsURL.path
+            ], timeout: 60)
+            setupProgress = 0.65
+
+            // Install requirements from bundled wheels (completely offline)
             let requirementsPath = serverDirectory.appendingPathComponent("requirements.txt").path
-            _ = try await runCommand(venvPipURL.path, arguments: ["install", "-r", requirementsPath], timeout: 600)
+            _ = try await runCommand(venvPipURL.path, arguments: [
+                "install",
+                "-r", requirementsPath,
+                "--no-index",
+                "--find-links", wheelsURL.path
+            ], timeout: 300)
             setupProgress = 0.85
 
             // Strip code signatures from pip-installed packages to avoid Team ID conflicts
@@ -375,6 +402,28 @@ final class PythonEnvironmentService: ObservableObject {
         // Copy the entire VoiceSamples folder
         try fm.copyItem(at: bundleVoiceSamplesDir, to: self.voiceSamplesURL)
         logger.info("Voice samples copied to \(self.voiceSamplesURL.path)")
+    }
+
+    /// Copy bundled Python wheels from app bundle to Application Support
+    private func copyBundledWheels() async throws {
+        let fm = FileManager.default
+
+        guard let bundleWheels = bundledWheelsURL,
+              fm.fileExists(atPath: bundleWheels.path) else {
+            logger.warning("Bundled wheels not found, will try to download from PyPI")
+            throw SetupError.bundleResourcesNotFound
+        }
+
+        // Remove existing wheels directory if it exists
+        if fm.fileExists(atPath: wheelsURL.path) {
+            try fm.removeItem(at: wheelsURL)
+        }
+
+        // Copy the entire wheels folder
+        try fm.copyItem(at: bundleWheels, to: wheelsURL)
+
+        let wheelCount = try fm.contentsOfDirectory(atPath: wheelsURL.path).filter { $0.hasSuffix(".whl") }.count
+        logger.info("Copied \(wheelCount) bundled wheels to \(self.wheelsURL.path)")
     }
 
     /// Re-sign pip-installed packages with ad-hoc signature to avoid Team ID conflicts

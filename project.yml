@@ -29,6 +29,8 @@ targets:
         type: folder
       - path: Resources/KokoroModel
         type: folder
+      - path: Resources/PythonWheels
+        type: folder
       - path: Server
         type: folder
     settings:
