@@ -1,0 +1,67 @@
++ set -e
++++ dirname ./Scripts/package.sh
+++ cd ./Scripts
+++ pwd
++ SCRIPT_DIR=/Users/mac/work/saas-project-rocket/Murmur/Scripts
+++ dirname /Users/mac/work/saas-project-rocket/Murmur/Scripts
++ PROJECT_DIR=/Users/mac/work/saas-project-rocket/Murmur
++ BUILD_DIR=/Users/mac/work/saas-project-rocket/Murmur/build
++ ARCHIVE_PATH=/Users/mac/work/saas-project-rocket/Murmur/build/Murmur.xcarchive
++ EXPORT_PATH=/Users/mac/work/saas-project-rocket/Murmur/build/export
++ APP_NAME=Murmur
++ DMG_NAME=Murmur
++ SKIP_NOTARIZE=false
++ SIGNING_IDENTITY=-
++ '[' false = false ']'
++ echo 'Checking for Code Signing Identity...'
+Checking for Code Signing Identity...
+++ security find-identity -v -p codesigning
+++ grep 'Developer ID Application'
+++ head -n 1
+++ sed -E 's/.*"([^"]+)".*/\1/'
++ IDENTITY_SEARCH='Developer ID Application: Tarun Yadav (2M3JKYS79P)'
++ '[' -n 'Developer ID Application: Tarun Yadav (2M3JKYS79P)' ']'
++ SIGNING_IDENTITY='Developer ID Application: Tarun Yadav (2M3JKYS79P)'
++ echo 'Found identity: Developer ID Application: Tarun Yadav (2M3JKYS79P)'
+Found identity: Developer ID Application: Tarun Yadav (2M3JKYS79P)
++ echo ============================================
+============================================
++ echo '  Murmur Packaging Script'
+  Murmur Packaging Script
++ echo ============================================
+============================================
++ echo ''
+
++ echo '[1/6] Cleaning previous builds...'
+[1/6] Cleaning previous builds...
++ rm -rf /Users/mac/work/saas-project-rocket/Murmur/build
++ mkdir -p /Users/mac/work/saas-project-rocket/Murmur/build
++ echo '[2/6] Building and archiving...'
+[2/6] Building and archiving...
++ xcodebuild -project /Users/mac/work/saas-project-rocket/Murmur/Murmur.xcodeproj -scheme Murmur -configuration Release -archivePath /Users/mac/work/saas-project-rocket/Murmur/build/Murmur.xcarchive archive CODE_SIGN_STYLE=Automatic 'CODE_SIGN_IDENTITY=Developer ID Application: Tarun Yadav (2M3JKYS79P)' CODE_SIGNING_REQUIRED=NO
++ grep -E '^(Build|Archive|error:|warning:)'
+2026-01-18 23:15:12.580 xcodebuild[86214:13640576] warning:  The file reference for ".git" is a member of multiple groups ("Murmur" and ""); this indicates a malformed project.  Only the membership in one of the groups will be preserved (but membership in targets will be unaffected).  If you want a reference to the same file in more than one group, please add another reference to the same path.
+2026-01-18 23:15:12.580 xcodebuild[86214:13640576] warning:  The file reference for "Extensions" is a member of multiple groups ("Murmur" and ""); this indicates a malformed project.  Only the membership in one of the groups will be preserved (but membership in targets will be unaffected).  If you want a reference to the same file in more than one group, please add another reference to the same path.
+2026-01-18 23:15:12.580 xcodebuild[86214:13640576] warning:  The file reference for "Models" is a member of multiple groups ("Murmur" and ""); this indicates a malformed project.  Only the membership in one of the groups will be preserved (but membership in targets will be unaffected).  If you want a reference to the same file in more than one group, please add another reference to the same path.
+2026-01-18 23:15:12.580 xcodebuild[86214:13640576] warning:  The file reference for "Services" is a member of multiple groups ("Murmur" and ""); this indicates a malformed project.  Only the membership in one of the groups will be preserved (but membership in targets will be unaffected).  If you want a reference to the same file in more than one group, please add another reference to the same path.
+2026-01-18 23:15:12.580 xcodebuild[86214:13640576] warning:  The file reference for "Utilities" is a member of multiple groups ("Murmur" and ""); this indicates a malformed project.  Only the membership in one of the groups will be preserved (but membership in targets will be unaffected).  If you want a reference to the same file in more than one group, please add another reference to the same path.
+2026-01-18 23:15:12.580 xcodebuild[86214:13640576] warning:  The file reference for "ViewModels" is a member of multiple groups ("Murmur" and ""); this indicates a malformed project.  Only the membership in one of the groups will be preserved (but membership in targets will be unaffected).  If you want a reference to the same file in more than one group, please add another reference to the same path.
+2026-01-18 23:15:12.580 xcodebuild[86214:13640576] warning:  The file reference for "Views" is a member of multiple groups ("Murmur" and ""); this indicates a malformed project.  Only the membership in one of the groups will be preserved (but membership in targets will be unaffected).  If you want a reference to the same file in more than one group, please add another reference to the same path.
+2026-01-18 23:15:13.923 xcodebuild[86214:13640576] [MT] IDERunDestination: Supported platforms for the buildables in the current scheme is empty.
+--- xcodebuild: WARNING: Using the first of multiple matching destinations:
+{ platform:macOS, name:Any Mac }
+{ platform:macOS, arch:arm64, id:00006000-000449823ED8801E, name:My Mac }
+{ platform:macOS, arch:x86_64, id:00006000-000449823ED8801E, name:My Mac }
+** ARCHIVE FAILED **
+
+
+The following build commands failed:
+	Archiving project Murmur with scheme Murmur
+(1 failure)
+Build settings from command line:
+Build description signature: 975930173c0925c98a0ce4f13be80252
+Build description path: /Users/mac/Library/Developer/Xcode/DerivedData/Murmur-ctznpxcqubvikydsdcthzqbqarxx/Build/Intermediates.noindex/ArchiveIntermediates/Murmur/IntermediateBuildFilesPath/XCBuildData/975930173c0925c98a0ce4f13be80252.xcbuilddata
++ '[' '!' -d /Users/mac/work/saas-project-rocket/Murmur/build/Murmur.xcarchive ']'
++ echo 'Error: Archive failed. Check Xcode signing configuration.'
+Error: Archive failed. Check Xcode signing configuration.
++ exit 1

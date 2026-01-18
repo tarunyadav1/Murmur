@@ -31,6 +31,26 @@ for arg in "$@"; do
     esac
 done
 
+# Try to find a valid Developer ID Application certificate if not skip notarize
+SIGNING_IDENTITY="-"
+if [ "$SKIP_NOTARIZE" = false ]; then
+    echo "Checking for Code Signing Identity..."
+    IDENTITY_SEARCH=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+    if [ -n "$IDENTITY_SEARCH" ]; then
+        SIGNING_IDENTITY="$IDENTITY_SEARCH"
+        echo "Found identity: $SIGNING_IDENTITY"
+        # Extract Team ID from identity string (e.g. "Developer ID Application: Name (TEAMID)")
+        AUTO_TEAM_ID=$(echo "$SIGNING_IDENTITY" | sed -E 's/.*\(([A-Z0-9]+)\).*/\1/')
+        if [ -n "$AUTO_TEAM_ID" ]; then
+            TEAM_ID="$AUTO_TEAM_ID"
+            echo "Extracted Team ID: $TEAM_ID"
+        fi
+    else
+        echo "Warning: No 'Developer ID Application' identity found. Using ad-hoc signing."
+        echo "Notarization will likely fail without a valid Apple Developer certificate."
+    fi
+fi
+
 echo "============================================"
 echo "  Murmur Packaging Script"
 echo "============================================"
@@ -48,13 +68,20 @@ xcodebuild -project "$PROJECT_DIR/Murmur.xcodeproj" \
     -configuration Release \
     -archivePath "$ARCHIVE_PATH" \
     archive \
-    CODE_SIGN_STYLE=Automatic \
+    CODE_SIGNING_ALLOWED=NO \
+    CODE_SIGNING_REQUIRED=NO \
     | grep -E "^(Build|Archive|error:|warning:)" || true
 
 if [ ! -d "$ARCHIVE_PATH" ]; then
-    echo "Error: Archive failed. Check Xcode signing configuration."
+    echo "Error: Archive failed."
     exit 1
 fi
+
+# Inject Team ID and properties into archive Info.plist so exportArchive works
+echo "Injecting Team ID and metadata into archive..."
+plutil -replace DevelopmentTeam -string "$TEAM_ID" "$ARCHIVE_PATH/Info.plist"
+plutil -replace ApplicationProperties.Team -string "$TEAM_ID" "$ARCHIVE_PATH/Info.plist"
+plutil -replace ApplicationProperties.SigningIdentity -string "$SIGNING_IDENTITY" "$ARCHIVE_PATH/Info.plist"
 
 echo "Archive created: $ARCHIVE_PATH"
 
@@ -69,8 +96,10 @@ cat > "$BUILD_DIR/ExportOptions.plist" << EOF
 <dict>
     <key>method</key>
     <string>developer-id</string>
-    <key>destination</key>
-    <string>export</string>
+    <key>teamID</key>
+    <string>$TEAM_ID</string>
+    <key>signingStyle</key>
+    <string>manual</string>
 </dict>
 </plist>
 EOF
@@ -89,6 +118,10 @@ if [ ! -d "$APP_PATH" ]; then
 fi
 
 echo "App exported: $APP_PATH"
+
+# Recursive signing (Crucial for notarization with bundled runtimes)
+echo "[3.5/6] Performing recursive signing..."
+"$SCRIPT_DIR/sign-bundle.sh" "$APP_PATH" "$SIGNING_IDENTITY" "$PROJECT_DIR/Murmur.entitlements"
 
 # Notarize (optional but recommended for distribution)
 if [ "$SKIP_NOTARIZE" = false ]; then
@@ -154,7 +187,7 @@ echo "DMG created: $DMG_PATH"
 # Create ZIP as alternative
 echo "[6/6] Creating ZIP archive..."
 ZIP_DIST_PATH="$BUILD_DIR/$APP_NAME.zip"
-ditto -c -k --keepParent "$APP_PATH" "$ZIP_DIST_PATH"
+ditto -c -k --keepParent --norsrc "$APP_PATH" "$ZIP_DIST_PATH"
 echo "ZIP created: $ZIP_DIST_PATH"
 
 # Verify bundle contents
