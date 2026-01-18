@@ -127,11 +127,30 @@ struct ContentView: View {
             selectedVoice = settingsService.settings.defaultVoice
             voiceSettings = settingsService.settings.voiceSettings
 
+            // Sync ttsService with initial selected voice
+            if selectedVoice.id != "default" {
+                ttsService.selectedVoiceId = selectedVoice.id
+            }
+
             if batchQueueViewModel == nil {
                 batchQueueViewModel = BatchQueueViewModel(
                     ttsService: ttsService,
                     audioPlayerService: audioPlayerService
                 )
+            }
+        }
+        .onChange(of: selectedVoice) { _, newVoice in
+            // Propagate local Voice selection to TTSService if it's not the placeholder
+            if newVoice.id != "default" {
+                ttsService.selectedVoiceId = newVoice.id
+            }
+        }
+        .onChange(of: ttsService.selectedVoiceId) { _, newVoiceId in
+            // Keep local Voice in sync if TTSService changes (e.g. from compact menu)
+            if selectedVoice.id != newVoiceId {
+                if let voice = Voice.builtInVoices.first(where: { $0.id == newVoiceId }) {
+                    selectedVoice = voice
+                }
             }
         }
         .onChange(of: text) { _, newText in
@@ -310,6 +329,8 @@ struct ContentView: View {
                     ForEach(ttsService.kokoroVoices) { voice in
                         Button {
                             ttsService.selectedVoiceId = voice.id
+                            // Reset to default so generate() uses selectedVoiceId
+                            selectedVoice = .defaultVoice
                         } label: {
                             HStack {
                                 Text(voice.name)
@@ -604,6 +625,10 @@ struct ContentView: View {
                     onLanguageSelected: { _ in
                         // Dismiss suggestion when user manually selects a voice
                         showLanguageSuggestion = false
+                    },
+                    onVoiceSelected: {
+                        // Reset to default so generate() uses selectedVoiceId
+                        selectedVoice = .defaultVoice
                     }
                 )
 
@@ -670,9 +695,15 @@ struct ContentView: View {
 
         Task {
             do {
+                // Use the unified selectedVoiceId from ttsService
+                let effectiveVoiceId = ttsService.selectedVoiceId
+                
+                // Find matching local Voice for history tracking
+                let voiceToTrack = Voice.builtInVoices.first(where: { $0.id == effectiveVoiceId }) ?? selectedVoice
+
                 let audio = try await ttsService.generate(
                     text: trimmedText,
-                    voice: selectedVoice,
+                    voice: nil, // Passing nil uses ttsService.selectedVoiceId internally
                     speed: voiceSettings.pacing,
                     voiceSettings: voiceSettings
                 )
@@ -691,7 +722,7 @@ struct ContentView: View {
 
                 historyService.addRecord(
                     text: trimmedText,
-                    voice: selectedVoice,
+                    voice: voiceToTrack,
                     audioSamples: audio,
                     durationSeconds: audioDuration,
                     generationTimeSeconds: generationTime
@@ -1468,6 +1499,7 @@ struct KokoroVoiceSelector: View {
     var onRetryLoadVoices: (() async -> Void)? = nil
     var suggestedLanguage: Language? = nil
     var onLanguageSelected: ((Language) -> Void)? = nil
+    var onVoiceSelected: (() -> Void)? = nil
 
     @State private var isExpanded = false
     @State private var isRetrying = false
@@ -1646,6 +1678,7 @@ struct KokoroVoiceSelector: View {
                                             },
                                             onVoiceSelected: { voiceId in
                                                 selectedVoiceId = voiceId
+                                                self.onVoiceSelected?()
                                                 withAnimation(.spring(duration: 0.2)) {
                                                     isExpanded = false
                                                     searchText = ""
@@ -1664,6 +1697,7 @@ struct KokoroVoiceSelector: View {
                                             isSelected: selectedVoiceId == voice.id,
                                             onSelect: {
                                                 selectedVoiceId = voice.id
+                                                onVoiceSelected?()
                                                 withAnimation(.spring(duration: 0.2)) {
                                                     isExpanded = false
                                                     searchText = ""
