@@ -3,7 +3,7 @@ import SwiftUI
 struct SettingsView: View {
 
     @EnvironmentObject var settingsService: SettingsService
-    @EnvironmentObject var ttsService: TTSService
+    @EnvironmentObject var ttsService: KokoroTTSService
 
     var body: some View {
         ScrollView {

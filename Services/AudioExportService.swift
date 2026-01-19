@@ -24,7 +24,7 @@ final class AudioExportService {
 
     private let sampleRate: Int
 
-    init(sampleRate: Int = TTSService.sampleRate) {
+    init(sampleRate: Int = KokoroTTSService.sampleRate) {
         self.sampleRate = sampleRate
     }
 

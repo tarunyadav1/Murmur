@@ -6,10 +6,26 @@ options:
   xcodeVersion: "15.0"
   generateEmptyDirectories: true
 
+# Swift Package Dependencies for Native TTS
+packages:
+  mlx-audio:
+    url: https://github.com/Blaizzy/mlx-audio
+    branch: main
+  mlx-swift:
+    url: https://github.com/ml-explore/mlx-swift
+    from: "0.30.2"
+
 targets:
   Murmur:
     type: application
     platform: macOS
+    dependencies:
+      - package: mlx-audio
+        product: MLXAudio
+      - package: mlx-swift
+        product: MLXFast
+      - package: mlx-swift
+        product: MLXRandom
     sources:
       - path: .
         excludes:
@@ -23,15 +39,17 @@ targets:
           - "*.zip"
           - "*.app"
           - Info.plist
+          - MIGRATION_PLAN.md
+          - repomix-output.xml
       - path: Resources/VoiceSamples
         type: folder
-      - path: Resources/Python
-        type: folder
+      # Kokoro voice data files (JSON) for native TTS - must be at root level for Bundle.main.path()
+      - path: Resources
+        includes:
+          - "*.json"
+        buildPhase: resources
+      # Kokoro model weights for native TTS
       - path: Resources/KokoroModel
-        type: folder
-      - path: Resources/PythonWheels
-        type: folder
-      - path: Server
         type: folder
     settings:
       base:

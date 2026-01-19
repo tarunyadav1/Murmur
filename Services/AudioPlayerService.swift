@@ -34,7 +34,7 @@ final class AudioPlayerService: NSObject, ObservableObject {
     /// - Parameters:
     ///   - samples: Audio samples as [Float]
     ///   - sampleRate: Sample rate in Hz (default 24000 for Kokoro)
-    func loadAudio(samples: [Float], sampleRate: Int = TTSService.sampleRate) throws {
+    func loadAudio(samples: [Float], sampleRate: Int = KokoroTTSService.sampleRate) throws {
         stop()
 
         currentSamples = samples

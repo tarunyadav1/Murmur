@@ -4,7 +4,7 @@ import AppKit
 
 struct ContentView: View {
 
-    @EnvironmentObject var ttsService: TTSService
+    @EnvironmentObject var ttsService: KokoroTTSService
     @EnvironmentObject var audioPlayerService: AudioPlayerService
     @EnvironmentObject var settingsService: SettingsService
 
@@ -789,14 +789,15 @@ struct ContentView: View {
         guard !trimmedText.isEmpty else { return }
 
         isGenerating = true
-        generationStartTime = Date()
+        let startTime = Date() // Capture locally to avoid @State race conditions
+        generationStartTime = startTime
         toastManager.showGenerating()
 
         Task {
             do {
                 // Use the unified selectedVoiceId from ttsService
                 let effectiveVoiceId = ttsService.selectedVoiceId
-                
+
                 // Find matching local Voice for history tracking
                 let voiceToTrack = Voice.builtInVoices.first(where: { $0.id == effectiveVoiceId }) ?? selectedVoice
 
@@ -807,8 +808,8 @@ struct ContentView: View {
                     voiceSettings: voiceSettings
                 )
 
-                let generationTime = Date().timeIntervalSince(generationStartTime ?? Date())
-                let audioDuration = Double(audio.count) / Double(TTSService.sampleRate)
+                let generationTime = Date().timeIntervalSince(startTime)
+                let audioDuration = Double(audio.count) / Double(KokoroTTSService.sampleRate)
 
                 // Compute waveform on background thread
                 let waveform = await Task.detached(priority: .userInitiated) {
@@ -860,7 +861,8 @@ struct ContentView: View {
         documentCurrentChunk = 0
         isGeneratingDocument = true
         isGenerating = true
-        generationStartTime = Date()
+        let startTime = Date() // Capture locally to avoid @State race conditions
+        generationStartTime = startTime
 
         // Cancel any existing task
         documentGenerationTask?.cancel()
@@ -882,8 +884,8 @@ struct ContentView: View {
                 // Check if cancelled
                 try Task.checkCancellation()
 
-                let generationTime = Date().timeIntervalSince(generationStartTime ?? Date())
-                let audioDuration = Double(audio.count) / Double(TTSService.sampleRate)
+                let generationTime = Date().timeIntervalSince(startTime)
+                let audioDuration = Double(audio.count) / Double(KokoroTTSService.sampleRate)
 
                 // Compute waveform on background thread
                 let waveform = await Task.detached(priority: .userInitiated) {

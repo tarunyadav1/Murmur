@@ -7,10 +7,10 @@ final class BatchQueueViewModel: ObservableObject {
     @Published var currentBlockId: UUID?
     @Published var isProcessing: Bool = false
 
-    private let ttsService: TTSService
+    private let ttsService: KokoroTTSService
     private let audioPlayerService: AudioPlayerService
 
-    init(ttsService: TTSService, audioPlayerService: AudioPlayerService) {
+    init(ttsService: KokoroTTSService, audioPlayerService: AudioPlayerService) {
         self.ttsService = ttsService
         self.audioPlayerService = audioPlayerService
     }

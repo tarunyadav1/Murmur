@@ -66,9 +66,10 @@ struct FloatingAudioPlayer: View {
         }
 
         let chunkSize = max(1, samples.count / barCount)
-        var result: [Float] = []
-        result.reserveCapacity(barCount)
+        var rawValues: [Float] = []
+        rawValues.reserveCapacity(barCount)
 
+        // First pass: compute raw max values for each chunk
         for i in 0..<barCount {
             let start = i * chunkSize
             let end = min(start + chunkSize, samples.count)
@@ -78,10 +79,28 @@ struct FloatingAudioPlayer: View {
                     let absVal = abs(samples[j])
                     if absVal > maxVal { maxVal = absVal }
                 }
-                result.append(max(0.08, min(1.0, maxVal * 2.2)))
+                rawValues.append(maxVal)
             } else {
-                result.append(0.08)
+                rawValues.append(0)
             }
+        }
+
+        // Find the global max to normalize
+        let globalMax = rawValues.max() ?? 1.0
+        let normalizer: Float = globalMax > 0.001 ? 1.0 / globalMax : 1.0
+
+        // Second pass: normalize and scale for display
+        var result: [Float] = []
+        result.reserveCapacity(barCount)
+
+        for rawVal in rawValues {
+            // Normalize to 0-1 range based on global max
+            let normalized = rawVal * normalizer
+            // Apply curve for better visual (sqrt makes quiet parts more visible)
+            let curved = sqrt(normalized)
+            // Scale to display range with minimum height
+            let displayVal = 0.1 + curved * 0.9
+            result.append(displayVal)
         }
 
         return result
