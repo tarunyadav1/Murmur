@@ -674,6 +674,7 @@ struct ContentView: View {
                 HistoryPanel(
                     historyService: historyService,
                     audioPlayerService: audioPlayerService,
+                    selectedRecordId: selectedHistoryRecord?.id,
                     onClose: { withAnimation { showHistory = false } },
                     onReuse: { record in
                         text = record.text
@@ -787,6 +788,9 @@ struct ContentView: View {
     private func generate() {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
+
+        // Prevent double-clicking - if already generating, ignore
+        guard !isGenerating else { return }
 
         isGenerating = true
         let startTime = Date() // Capture locally to avoid @State race conditions
@@ -970,7 +974,9 @@ struct ContentView: View {
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
                 _ = provider.loadObject(ofClass: URL.self) { url, error in
                     guard let url = url else {
-                        print("Failed to load URL: \(String(describing: error))")
+                        DispatchQueue.main.async {
+                            self.toastManager.showError("Failed to load file: \(error?.localizedDescription ?? "Unknown error")")
+                        }
                         return
                     }
 
@@ -981,13 +987,18 @@ struct ContentView: View {
                         }
                     } else {
                         // Try to read as text file
-                        guard let fileContent = try? String(contentsOf: url, encoding: .utf8) else { return }
-
-                        DispatchQueue.main.async {
-                            withAnimation(MurmurDesign.Animations.quick) {
-                                self.text = fileContent
+                        do {
+                            let fileContent = try String(contentsOf: url, encoding: .utf8)
+                            DispatchQueue.main.async {
+                                withAnimation(MurmurDesign.Animations.quick) {
+                                    self.text = fileContent
+                                }
+                                self.toastManager.show(.info, message: "Text loaded from file")
                             }
-                            self.toastManager.show(.info, message: "Text loaded from file")
+                        } catch {
+                            DispatchQueue.main.async {
+                                self.toastManager.showError("Could not read file: \(error.localizedDescription)")
+                            }
                         }
                     }
                 }
@@ -1202,6 +1213,7 @@ struct QueuePanel: View {
 struct HistoryPanel: View {
     @ObservedObject var historyService: HistoryService
     @ObservedObject var audioPlayerService: AudioPlayerService
+    let selectedRecordId: UUID?  // Currently selected record for highlighting
     let onClose: () -> Void
     let onReuse: (GenerationRecord) -> Void
     let onSelectRecord: (GenerationRecord) -> Void
@@ -1272,6 +1284,7 @@ struct HistoryPanel: View {
                             HistoryRow(
                                 record: record,
                                 audioPlayerService: audioPlayerService,
+                                isSelected: selectedRecordId == record.id,
                                 onSelect: { onSelectRecord(record) },
                                 onReuse: { onReuse(record) },
                                 onDelete: { historyService.deleteRecord(record) }
@@ -1302,6 +1315,7 @@ struct HistoryPanel: View {
 struct HistoryRow: View {
     let record: GenerationRecord
     @ObservedObject var audioPlayerService: AudioPlayerService
+    let isSelected: Bool
     let onSelect: () -> Void
     let onReuse: () -> Void
     let onDelete: () -> Void
@@ -1346,13 +1360,18 @@ struct HistoryRow: View {
                 .foregroundStyle(.secondary)
             }
             .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isSelected ? MurmurDesign.Colors.voicePrimary.opacity(0.15) : Color.clear)
+            )
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .strokeBorder(
-                        isPlaying ? MurmurDesign.Colors.voicePrimary.opacity(0.5) :
-                        (isHovered ? Color.accentColor.opacity(0.3) : .clear),
-                        lineWidth: isPlaying ? 2 : 1
+                        isSelected ? MurmurDesign.Colors.voicePrimary :
+                        (isPlaying ? MurmurDesign.Colors.voicePrimary.opacity(0.5) :
+                        (isHovered ? Color.accentColor.opacity(0.3) : .clear)),
+                        lineWidth: isSelected ? 2 : (isPlaying ? 2 : 1)
                     )
             )
         }
@@ -1360,6 +1379,7 @@ struct HistoryRow: View {
         .onHover { isHovered = $0 }
         .animation(.spring(duration: 0.2), value: isHovered)
         .animation(.spring(duration: 0.2), value: isPlaying)
+        .animation(.spring(duration: 0.2), value: isSelected)
         .contextMenu {
             Button(action: onSelect) {
                 Label("Open Player", systemImage: "play.circle")

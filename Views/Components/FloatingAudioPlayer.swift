@@ -348,6 +348,20 @@ struct FloatingAudioPlayer: View {
                         onSeek(seekProgress * duration)
                     }
             )
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Audio playback position")
+            .accessibilityValue("\(formatTime(currentTime)) of \(formatTime(duration))")
+            .accessibilityHint("Drag to seek through the audio")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment:
+                    onSeek(min(duration, currentTime + 5))
+                case .decrement:
+                    onSeek(max(0, currentTime - 5))
+                @unknown default:
+                    break
+                }
+            }
         }
     }
 

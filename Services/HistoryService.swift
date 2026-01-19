@@ -306,9 +306,12 @@ final class HistoryService: ObservableObject {
 
         let audioData = data[dataOffset...]
         var samples: [Float] = []
-        samples.reserveCapacity(audioData.count / 2)
 
-        for i in stride(from: 0, to: audioData.count - 1, by: 2) {
+        // Ensure we only process complete 16-bit sample pairs (2 bytes each)
+        let validByteCount = (audioData.count / 2) * 2
+        samples.reserveCapacity(validByteCount / 2)
+
+        for i in stride(from: 0, to: validByteCount, by: 2) {
             let index = audioData.startIndex + i
             let low = Int16(audioData[index])
             let high = Int16(audioData[index + 1]) << 8

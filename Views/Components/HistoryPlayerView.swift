@@ -31,18 +31,6 @@ struct HistoryPlayerView: View {
         isThisRecordPlaying && audioPlayerService.isPlaying
     }
 
-    /// Split text into words for highlighting
-    private var words: [String] {
-        record.text.split(separator: " ").map(String.init)
-    }
-
-    /// Estimate current word index based on playback progress
-    private var currentWordIndex: Int {
-        guard isThisRecordPlaying, audioPlayerService.duration > 0 else { return -1 }
-        let progress = audioPlayerService.currentTime / audioPlayerService.duration
-        return min(Int(progress * Double(words.count)), words.count - 1)
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             // Toolbar
@@ -59,6 +47,11 @@ struct HistoryPlayerView: View {
         }
         .background(Color(NSColor.windowBackgroundColor))
         .onAppear {
+            loadAudio()
+        }
+        .onChange(of: record.id) { _, _ in
+            // When a different record is selected, stop current audio and load the new one
+            audioPlayerService.stop()
             loadAudio()
         }
         .onKeyPress(.space) {
@@ -150,38 +143,20 @@ struct HistoryPlayerView: View {
 
     private var playerContent: some View {
         VStack(spacing: 0) {
-            // Text display - takes available space
-            ScrollViewReader { proxy in
-                ScrollView {
-                    WrappingHStack(alignment: .leading, spacing: 6, lineSpacing: 10) {
-                        ForEach(Array(words.enumerated()), id: \.offset) { index, word in
-                            Text(word)
-                                .font(.title2)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 3)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(index == currentWordIndex
-                                            ? MurmurDesign.Colors.voicePrimary.opacity(0.25)
-                                            : Color.clear)
-                                )
-                                .id(index)
-                        }
-                    }
+            // Text display - simple scrolling text without word-by-word highlighting
+            // This is much more performant than WrappingHStack with individual word views
+            ScrollView {
+                Text(record.text)
+                    .font(.title2)
+                    .lineSpacing(8)
                     .padding(24)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                .padding(.horizontal, 24)
-                .padding(.top, 16)
-                .onChange(of: currentWordIndex) { _, newIndex in
-                    if newIndex >= 0 {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            proxy.scrollTo(newIndex, anchor: .center)
-                        }
-                    }
-                }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
 
             // Bottom controls - fixed height
             VStack(spacing: 16) {
@@ -303,6 +278,20 @@ struct HistoryPlayerView: View {
                         audioPlayerService.seek(to: seekProgress * audioPlayerService.duration)
                     }
             )
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Audio playback position")
+            .accessibilityValue("\(formatTime(audioPlayerService.currentTime)) of \(formatTime(audioPlayerService.duration))")
+            .accessibilityHint("Drag to seek through the audio")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment:
+                    skipForward()
+                case .decrement:
+                    skipBackward()
+                @unknown default:
+                    break
+                }
+            }
         }
     }
 
@@ -425,59 +414,6 @@ struct HistoryPlayerView: View {
         } else {
             return String(format: "%.2gx", speed)
         }
-    }
-}
-
-// MARK: - Wrapping HStack for Text Words
-
-struct WrappingHStack: Layout {
-    var alignment: HorizontalAlignment = .leading
-    var spacing: CGFloat = 8
-    var lineSpacing: CGFloat = 8
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let result = layout(proposal: proposal, subviews: subviews)
-        return result.size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let result = layout(proposal: proposal, subviews: subviews)
-
-        for (index, frame) in result.frames.enumerated() {
-            let position = CGPoint(
-                x: bounds.minX + frame.origin.x + frame.width / 2,
-                y: bounds.minY + frame.origin.y + frame.height / 2
-            )
-            subviews[index].place(at: position, anchor: .center, proposal: ProposedViewSize(frame.size))
-        }
-    }
-
-    private func layout(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, frames: [CGRect]) {
-        let maxWidth = proposal.width ?? .infinity
-        var frames: [CGRect] = []
-        var currentX: CGFloat = 0
-        var currentY: CGFloat = 0
-        var lineHeight: CGFloat = 0
-        var maxX: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-
-            if currentX + size.width > maxWidth && currentX > 0 {
-                currentX = 0
-                currentY += lineHeight + lineSpacing
-                lineHeight = 0
-            }
-
-            frames.append(CGRect(origin: CGPoint(x: currentX, y: currentY), size: size))
-
-            currentX += size.width + spacing
-            lineHeight = max(lineHeight, size.height)
-            maxX = max(maxX, currentX)
-        }
-
-        let totalHeight = currentY + lineHeight
-        return (CGSize(width: maxX, height: totalHeight), frames)
     }
 }
 
