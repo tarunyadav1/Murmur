@@ -56,11 +56,19 @@ final class KokoroTTSService: ObservableObject {
     private var kokoroEngine: KokoroTTS?
     private var currentGenerationTask: Task<[Float], Error>?
 
-    /// Lock to serialize audio generation (mlx-audio has race conditions)
-    private let generationLock = NSLock()
+    /// Serial queue to serialize ALL TTS generation
+    /// ESpeakNG (used by mlx-audio) is NOT thread-safe and crashes when accessed concurrently.
+    /// This queue ensures only one phonemization/generation happens at a time.
+    private static let ttsSerialQueue = DispatchQueue(label: "com.murmur.tts.serial", qos: .userInitiated)
+
+    /// Semaphore to enforce serial access from async Swift code
+    private let ttsSemaphore = DispatchSemaphore(value: 1)
 
     /// Track if we're waiting for generation to complete
     private var isWaitingForGeneration = false
+
+    /// Track if generation should be cancelled
+    private var shouldCancelGeneration = false
 
     /// Sample rate for Kokoro output (24kHz)
     static let sampleRate: Int = 24000
@@ -368,6 +376,7 @@ final class KokoroTTSService: ObservableObject {
 
     /// Cancel any ongoing generation
     func cancelGeneration() {
+        shouldCancelGeneration = true
         currentGenerationTask?.cancel()
         currentGenerationTask = nil
         isGenerating = false
@@ -389,27 +398,45 @@ final class KokoroTTSService: ObservableObject {
             return []
         }
 
-        // Wait for any previous generation to complete (mlx-audio has race conditions)
-        if isWaitingForGeneration {
-            logger.info("Waiting for previous generation to complete...")
-            for _ in 0..<50 {
-                try await Task.sleep(nanoseconds: 100_000_000) // 100ms
-                if !isWaitingForGeneration {
-                    break
-                }
+        // Reset cancellation flag
+        shouldCancelGeneration = false
+
+        // CRITICAL: Acquire semaphore to serialize ALL TTS operations
+        // ESpeakNG (used by mlx-audio for phonemization) is NOT thread-safe
+        // and will crash if accessed concurrently from multiple threads.
+        logger.info("Acquiring TTS semaphore...")
+        let waitResult = await withCheckedContinuation { continuation in
+            Self.ttsSerialQueue.async {
+                let result = self.ttsSemaphore.wait(timeout: .now() + 120) // 2 min timeout for long PDFs
+                continuation.resume(returning: result)
             }
         }
+
+        if waitResult == .timedOut {
+            logger.error("TTS semaphore timed out - previous generation taking too long")
+            throw KokoroTTSError.generationFailed("Previous generation is still in progress")
+        }
+
+        logger.info("TTS semaphore acquired")
 
         isGenerating = true
         isWaitingForGeneration = true
         lastError = nil
 
         defer {
+            // Release semaphore when done
+            self.ttsSemaphore.signal()
+            logger.info("TTS semaphore released")
+
             Task { @MainActor in
                 self.isGenerating = false
-                try? await Task.sleep(nanoseconds: 100_000_000) // 100ms cooldown
                 self.isWaitingForGeneration = false
             }
+        }
+
+        // Check for cancellation
+        if shouldCancelGeneration {
+            throw KokoroTTSError.generationCancelled
         }
 
         // Determine voice
@@ -429,6 +456,12 @@ final class KokoroTTSService: ObservableObject {
         let silenceSamples = [Float](repeating: 0, count: Int(0.05 * Float(Self.sampleRate))) // 50ms silence between sentences
 
         for (index, sentence) in sentences.enumerated() {
+            // Check for cancellation between sentences
+            if shouldCancelGeneration {
+                logger.info("Generation cancelled at sentence \(index + 1)")
+                throw KokoroTTSError.generationCancelled
+            }
+
             let sentenceText = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !sentenceText.isEmpty else { continue }
 
@@ -436,6 +469,8 @@ final class KokoroTTSService: ObservableObject {
 
             // WORKAROUND: mlx-audio has internal state issues that cause subsequent sentences
             // to fail after the first few. Recreate engine for EACH sentence to ensure clean state.
+            // NOTE: Even though we create fresh engines, ESpeakNG is still NOT thread-safe at the
+            // C library level. The TTS semaphore above ensures only one generation runs at a time.
             guard let modelURL = bundledModelURL else {
                 throw KokoroTTSError.modelNotLoaded
             }
@@ -490,6 +525,11 @@ final class KokoroTTSService: ObservableObject {
         return finalSamples
     }
 
+    /// Maximum sentence length in characters to prevent ESpeakNG buffer overflow crashes
+    /// ESpeakNG has internal buffer limits and can crash with very long strings (see espeak-ng issue #824)
+    /// The Kokoro model also has a 510 token limit, so shorter sentences are better
+    private static let maxSentenceLength = 200
+
     /// Split text into sentences for sequential processing
     private func splitIntoSentences(_ text: String) -> [String] {
         // Preprocess text to handle problematic characters for eSpeak
@@ -539,7 +579,69 @@ final class KokoroTTSService: ObservableObject {
             sentences = [processedText]
         }
 
-        return sentences
+        // CRITICAL: Split any sentences that are too long to prevent ESpeakNG crashes
+        // ESpeakNG has internal buffer limits and will crash with very long strings
+        var safeSentences: [String] = []
+        for sentence in sentences {
+            if sentence.count <= Self.maxSentenceLength {
+                safeSentences.append(sentence)
+            } else {
+                // Split long sentence into smaller chunks
+                let chunks = splitLongSentence(sentence, maxLength: Self.maxSentenceLength)
+                safeSentences.append(contentsOf: chunks)
+            }
+        }
+
+        return safeSentences
+    }
+
+    /// Split a long sentence into smaller chunks at natural break points
+    /// Prefers splitting at: punctuation (.?!;:,), then spaces
+    private func splitLongSentence(_ sentence: String, maxLength: Int) -> [String] {
+        guard sentence.count > maxLength else { return [sentence] }
+
+        var chunks: [String] = []
+        var remaining = sentence
+
+        // Priority split characters (in order of preference)
+        let splitChars: [Character] = [".", "?", "!", ";", ":", ",", " "]
+
+        while remaining.count > maxLength {
+            var bestSplitIndex: String.Index? = nil
+
+            // Look for the best split point within maxLength
+            let searchEnd = remaining.index(remaining.startIndex, offsetBy: maxLength)
+            let searchRange = remaining.startIndex..<searchEnd
+
+            // Try each split character in priority order
+            for splitChar in splitChars {
+                // Find the last occurrence of this character within the range
+                if let range = remaining.range(of: String(splitChar), options: .backwards, range: searchRange) {
+                    bestSplitIndex = remaining.index(after: range.lowerBound)
+                    break
+                }
+            }
+
+            // If no good split point found, force split at maxLength
+            if bestSplitIndex == nil || bestSplitIndex == remaining.startIndex {
+                bestSplitIndex = searchEnd
+            }
+
+            let chunk = String(remaining[remaining.startIndex..<bestSplitIndex!]).trimmingCharacters(in: .whitespaces)
+            if !chunk.isEmpty {
+                chunks.append(chunk)
+            }
+
+            remaining = String(remaining[bestSplitIndex!...]).trimmingCharacters(in: .whitespaces)
+        }
+
+        // Add any remaining text
+        if !remaining.isEmpty {
+            chunks.append(remaining)
+        }
+
+        logger.info("Split long sentence (\(sentence.count) chars) into \(chunks.count) chunks")
+        return chunks
     }
 
     /// Preprocess text to handle characters that may cause eSpeak issues
@@ -762,6 +864,10 @@ final class KokoroTTSService: ObservableObject {
         for (index, chunk) in chunks.enumerated() {
             // Check for cancellation
             try Task.checkCancellation()
+            if shouldCancelGeneration {
+                logger.info("Chunked generation cancelled at chunk \(index + 1)")
+                throw KokoroTTSError.generationCancelled
+            }
 
             // Report progress
             await MainActor.run {
