@@ -63,6 +63,9 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Murmur.entitlements
         ENABLE_HARDENED_RUNTIME: YES
         DEVELOPMENT_TEAM: 2M3JKYS79P
+        ARCHS: arm64
+        VALID_ARCHS: arm64
+        ONLY_ACTIVE_ARCH: NO
       configs:
         Debug:
           CODE_SIGN_IDENTITY: "-"

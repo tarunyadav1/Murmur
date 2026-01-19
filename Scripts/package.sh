@@ -67,7 +67,11 @@ xcodebuild -project "$PROJECT_DIR/Murmur.xcodeproj" \
     -scheme "Murmur" \
     -configuration Release \
     -archivePath "$ARCHIVE_PATH" \
+    -destination "generic/platform=macOS" \
     archive \
+    ARCHS=arm64 \
+    VALID_ARCHS=arm64 \
+    ONLY_ACTIVE_ARCH=NO \
     CODE_SIGNING_ALLOWED=NO \
     CODE_SIGNING_REQUIRED=NO \
     | grep -E "^(Build|Archive|error:|warning:)" || true
