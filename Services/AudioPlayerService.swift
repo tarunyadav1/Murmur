@@ -12,6 +12,8 @@ final class AudioPlayerService: NSObject, ObservableObject {
     @Published private(set) var currentTime: TimeInterval = 0
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var isReady: Bool = false
+    @Published var playingRecordId: UUID?  // Track which history record is currently loaded
+    @Published var playbackSpeed: Float = 1.0
 
     // MARK: - Private Properties
 
@@ -53,9 +55,27 @@ final class AudioPlayerService: NSObject, ObservableObject {
 
     func play() {
         guard let player = audioPlayer, isReady else { return }
+        player.enableRate = true
+        player.rate = playbackSpeed
         player.play()
         isPlaying = true
         startProgressTimer()
+    }
+
+    /// Set playback speed (0.5x to 2x)
+    func setSpeed(_ speed: Float) {
+        let clampedSpeed = max(0.5, min(2.0, speed))
+        playbackSpeed = clampedSpeed
+        if let player = audioPlayer {
+            player.enableRate = true
+            player.rate = clampedSpeed
+        }
+    }
+
+    /// Skip forward or backward by seconds
+    func skip(by seconds: TimeInterval) {
+        let newTime = currentTime + seconds
+        seek(to: newTime)
     }
 
     func pause() {
@@ -98,8 +118,8 @@ final class AudioPlayerService: NSObject, ObservableObject {
 
     private func startProgressTimer() {
         stopProgressTimer()
-        // Use Combine Timer for reliable main-thread updates at 60fps
-        timerCancellable = Timer.publish(every: 1.0/60.0, on: .main, in: .common)
+        // Use Combine Timer for reliable main-thread updates at 15fps (sufficient for UI)
+        timerCancellable = Timer.publish(every: 1.0/15.0, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
                 guard let self = self, let player = self.audioPlayer else { return }
@@ -121,7 +141,7 @@ final class AudioPlayerService: NSObject, ObservableObject {
 
     // MARK: - WAV Conversion
 
-    /// Creates WAV file data from PCM samples
+    /// Creates WAV file data from PCM samples (optimized for large arrays)
     private func createWAVData(from samples: [Float], sampleRate: Int) -> Data {
         let channels: Int16 = 1
         let bitsPerSample: Int16 = 16
@@ -130,7 +150,8 @@ final class AudioPlayerService: NSObject, ObservableObject {
         let dataSize = Int32(samples.count * Int(bitsPerSample / 8))
         let fileSize = 36 + dataSize
 
-        var data = Data()
+        // Pre-allocate data with exact size needed
+        var data = Data(capacity: 44 + samples.count * 2)
 
         // RIFF header
         data.append(contentsOf: "RIFF".utf8)
@@ -151,11 +172,17 @@ final class AudioPlayerService: NSObject, ObservableObject {
         data.append(contentsOf: "data".utf8)
         data.append(contentsOf: withUnsafeBytes(of: dataSize.littleEndian) { Array($0) })
 
-        // Convert Float samples to Int16
-        for sample in samples {
-            let clamped = max(-1.0, min(1.0, sample))
-            let int16Sample = Int16(clamped * Float(Int16.max))
-            data.append(contentsOf: withUnsafeBytes(of: int16Sample.littleEndian) { Array($0) })
+        // Convert Float samples to Int16 using bulk operation
+        var int16Samples = [Int16](repeating: 0, count: samples.count)
+        for i in 0..<samples.count {
+            let clamped = max(-1.0, min(1.0, samples[i]))
+            int16Samples[i] = Int16(clamped * Float(Int16.max))
+        }
+
+        // Append all samples at once
+        int16Samples.withUnsafeBufferPointer { buffer in
+            data.append(UnsafeBufferPointer(start: UnsafeRawPointer(buffer.baseAddress!)
+                .assumingMemoryBound(to: UInt8.self), count: samples.count * 2))
         }
 
         return data

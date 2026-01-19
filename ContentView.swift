@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import AppKit
 
 struct ContentView: View {
 
@@ -14,6 +15,7 @@ struct ContentView: View {
     @State private var selectedVoice: Voice = .defaultVoice
     @State private var voiceSettings: VoiceSettings = .default
     @State private var generatedAudio: [Float]?
+    @State private var generatedWaveform: [Float] = []
     @State private var isGenerating = false
     @State private var generatedFilename: String = ""
 
@@ -30,11 +32,25 @@ struct ContentView: View {
     @State private var showInspector = false // Collapsed by default now
     @State private var isDropTargeted = false
     @State private var createButtonPressed = false
+    @State private var selectedHistoryRecord: GenerationRecord?  // For full-screen player
 
     // Language detection
     @State private var detectedLanguage: Language?
     @State private var showLanguageSuggestion = false
     @State private var languageDetectionTask: Task<Void, Never>?
+
+    // Document import state
+    @State private var showImportSheet = false
+    @State private var importResult: DocumentImportService.ImportResult?
+    @State private var isImporting = false
+    private let documentImportService = DocumentImportService()
+
+    // Document generation progress state
+    @State private var isGeneratingDocument = false
+    @State private var documentGenerationName = ""
+    @State private var documentCurrentChunk = 0
+    @State private var documentTotalChunks = 0
+    @State private var documentGenerationTask: Task<Void, Never>?
 
     private var wordCount: Int {
         text.split(separator: " ").count
@@ -52,8 +68,34 @@ struct ContentView: View {
         ZStack {
             HSplitView {
                 // Main Content Area - Content First!
-                mainContentPanel
+                if let record = selectedHistoryRecord {
+                    // History Player View takes over main area
+                    HistoryPlayerView(
+                        record: record,
+                        audioPlayerService: audioPlayerService,
+                        historyService: historyService,
+                        onClose: {
+                            withAnimation(MurmurDesign.Animations.panelSlide) {
+                                selectedHistoryRecord = nil
+                            }
+                        },
+                        onRegenerate: { rec in
+                            text = rec.text
+                            if let voice = Voice.builtInVoices.first(where: { $0.id == rec.voiceId }) {
+                                selectedVoice = voice
+                            }
+                            withAnimation(MurmurDesign.Animations.panelSlide) {
+                                selectedHistoryRecord = nil
+                                showHistory = false
+                            }
+                        }
+                    )
                     .frame(minWidth: 520)
+                    .transition(.opacity)
+                } else {
+                    mainContentPanel
+                        .frame(minWidth: 520)
+                }
 
                 // Inspector Panel - Collapsed by default
                 if showInspector {
@@ -62,6 +104,7 @@ struct ContentView: View {
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
+            .animation(MurmurDesign.Animations.panelSlide, value: selectedHistoryRecord?.id)
 
             // Floating Audio Player
             if generatedAudio != nil {
@@ -74,7 +117,7 @@ struct ContentView: View {
                             duration: audioPlayerService.duration,
                             currentTime: audioPlayerService.currentTime,
                             isPlaying: audioPlayerService.isPlaying,
-                            samples: generatedAudio ?? [],
+                            waveformData: generatedWaveform,
                             generationTime: lastGenerationTime,
                             onPlay: { audioPlayerService.play() },
                             onPause: { audioPlayerService.pause() },
@@ -84,6 +127,7 @@ struct ContentView: View {
                             onDismiss: {
                                 withAnimation(MurmurDesign.Animations.panelSlide) {
                                     generatedAudio = nil
+                                    generatedWaveform = []
                                     audioPlayerService.stop()
                                 }
                             }
@@ -107,8 +151,29 @@ struct ContentView: View {
                 toolbarItems
             }
         }
-        .onDrop(of: [.text, .plainText, .fileURL], isTargeted: $isDropTargeted) { providers in
+        .onDrop(of: [.text, .plainText, .fileURL, .pdf], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
+        }
+        .sheet(isPresented: $showImportSheet) {
+            if let result = importResult {
+                DocumentImportSheet(
+                    importResult: result,
+                    onGenerateAudio: { chunks in
+                        showImportSheet = false
+                        let docName = importResult?.documentName ?? "Document"
+                        importResult = nil
+                        // Generate audio from chunks
+                        generateFromChunks(chunks, documentName: docName)
+                    },
+                    onCancel: {
+                        showImportSheet = false
+                        importResult = nil
+                    }
+                )
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openDocument)) { _ in
+            showOpenPanel()
         }
         .overlay {
             // Drop zone indicator
@@ -119,8 +184,20 @@ struct ContentView: View {
                     .padding(8)
                     .transition(.opacity)
             }
+
+            // Document generation progress overlay
+            if isGeneratingDocument {
+                DocumentGenerationOverlay(
+                    documentName: documentGenerationName,
+                    currentChunk: documentCurrentChunk,
+                    totalChunks: documentTotalChunks,
+                    onCancel: cancelDocumentGeneration
+                )
+                .transition(.opacity)
+            }
         }
         .animation(MurmurDesign.Animations.quick, value: isDropTargeted)
+        .animation(MurmurDesign.Animations.quick, value: isGeneratingDocument)
         .animation(MurmurDesign.Animations.panelSlide, value: showInspector)
         .animation(MurmurDesign.Animations.panelSlide, value: generatedAudio != nil)
         .onAppear {
@@ -384,14 +461,24 @@ struct ContentView: View {
     private var heroTextEditor: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .topLeading) {
-                // Placeholder
+                // Placeholder with upload hint
                 if text.isEmpty {
-                    Text("What would you like to say?")
-                        .font(.title3)
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 16)
-                        .allowsHitTesting(false)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("What would you like to say?")
+                            .font(.title3)
+                            .foregroundStyle(.tertiary)
+
+                        HStack(spacing: 4) {
+                            Image(systemName: "doc.fill")
+                                .font(.caption)
+                            Text("Drop a PDF here or press ⌘O to import")
+                                .font(.caption)
+                        }
+                        .foregroundStyle(.quaternary)
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 16)
+                    .allowsHitTesting(false)
                 }
 
                 TextEditor(text: $text)
@@ -461,6 +548,13 @@ struct ContentView: View {
             }
 
             Spacer()
+
+            // Import PDF button
+            Button(action: showOpenPanel) {
+                Label("Import PDF", systemImage: "doc.badge.plus")
+            }
+            .buttonStyle(.bordered)
+            .help("Import PDF document (⌘O)")
 
             // Copy button
             if !text.isEmpty {
@@ -587,6 +681,11 @@ struct ContentView: View {
                             selectedVoice = voice
                         }
                         withAnimation { showHistory = false }
+                    },
+                    onSelectRecord: { record in
+                        withAnimation(MurmurDesign.Animations.panelSlide) {
+                            selectedHistoryRecord = record
+                        }
                     }
                 )
             } else if showQueue, let queueVM = batchQueueViewModel {
@@ -711,8 +810,14 @@ struct ContentView: View {
                 let generationTime = Date().timeIntervalSince(generationStartTime ?? Date())
                 let audioDuration = Double(audio.count) / Double(TTSService.sampleRate)
 
+                // Compute waveform on background thread
+                let waveform = await Task.detached(priority: .userInitiated) {
+                    FloatingAudioPlayer.computeWaveform(from: audio)
+                }.value
+
                 withAnimation(MurmurDesign.Animations.panelSlide) {
                     generatedAudio = audio
+                    generatedWaveform = waveform
                     generatedFilename = AudioExportService.generateFilename() + ".wav"
                     lastGenerationTime = generationTime
                     lastAudioDuration = audioDuration
@@ -745,22 +850,143 @@ struct ContentView: View {
         }
     }
 
+    /// Generate audio from multiple chunks (for PDF imports)
+    private func generateFromChunks(_ chunks: [String], documentName: String) {
+        guard !chunks.isEmpty else { return }
+
+        // Setup overlay state
+        documentGenerationName = documentName
+        documentTotalChunks = chunks.count
+        documentCurrentChunk = 0
+        isGeneratingDocument = true
+        isGenerating = true
+        generationStartTime = Date()
+
+        // Cancel any existing task
+        documentGenerationTask?.cancel()
+
+        documentGenerationTask = Task {
+            do {
+                let audio = try await ttsService.generateChunked(
+                    chunks: chunks,
+                    voice: nil,
+                    speed: voiceSettings.pacing,
+                    voiceSettings: voiceSettings,
+                    onProgress: { current, total in
+                        Task { @MainActor in
+                            documentCurrentChunk = current
+                        }
+                    }
+                )
+
+                // Check if cancelled
+                try Task.checkCancellation()
+
+                let generationTime = Date().timeIntervalSince(generationStartTime ?? Date())
+                let audioDuration = Double(audio.count) / Double(TTSService.sampleRate)
+
+                // Compute waveform on background thread
+                let waveform = await Task.detached(priority: .userInitiated) {
+                    FloatingAudioPlayer.computeWaveform(from: audio)
+                }.value
+
+                // Hide overlay first
+                await MainActor.run {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        isGeneratingDocument = false
+                    }
+                }
+
+                // Small delay for smooth transition
+                try? await Task.sleep(nanoseconds: 200_000_000)
+
+                // Load audio on background thread first (before showing player)
+                try await Task.detached(priority: .userInitiated) {
+                    try await MainActor.run {
+                        try audioPlayerService.loadAudio(samples: audio)
+                    }
+                }.value
+
+                await MainActor.run {
+                    withAnimation(MurmurDesign.Animations.panelSlide) {
+                        generatedAudio = audio
+                        generatedWaveform = waveform
+                        generatedFilename = "\(documentName).wav"
+                        lastGenerationTime = generationTime
+                        lastAudioDuration = audioDuration
+                    }
+                }
+
+                // Success toast with duration info
+                await MainActor.run {
+                    let durationStr = audioDuration >= 60
+                        ? String(format: "%.1f min", audioDuration / 60)
+                        : String(format: "%.1fs", audioDuration)
+                    toastManager.showSuccess("Audio ready! \(durationStr)")
+
+                    // Only autoplay if setting is enabled
+                    if settingsService.settings.autoPlayOnGenerate {
+                        audioPlayerService.play()
+                    }
+                }
+
+            } catch is CancellationError {
+                await MainActor.run {
+                    toastManager.show(.info, message: "Generation cancelled")
+                }
+            } catch {
+                await MainActor.run {
+                    toastManager.showError(error.localizedDescription)
+                }
+            }
+
+            await MainActor.run {
+                isGenerating = false
+                isGeneratingDocument = false
+                generationStartTime = nil
+                documentGenerationTask = nil
+            }
+        }
+    }
+
+    /// Cancel ongoing document generation
+    private func cancelDocumentGeneration() {
+        documentGenerationTask?.cancel()
+        ttsService.cancelGeneration()
+
+        withAnimation(.easeOut(duration: 0.3)) {
+            isGeneratingDocument = false
+            isGenerating = false
+        }
+    }
+
     // MARK: - Drag and Drop
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         for provider in providers {
-            // Handle text files
+            // Handle file URLs (including PDFs) - use loadFileRepresentation for better compatibility
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-                    guard let data = item as? Data,
-                          let url = URL(dataRepresentation: data, relativeTo: nil),
-                          let fileContent = try? String(contentsOf: url, encoding: .utf8) else { return }
+                _ = provider.loadObject(ofClass: URL.self) { url, error in
+                    guard let url = url else {
+                        print("Failed to load URL: \(String(describing: error))")
+                        return
+                    }
 
-                    DispatchQueue.main.async {
-                        withAnimation(MurmurDesign.Animations.quick) {
-                            self.text = fileContent
+                    // Check if it's a PDF
+                    if url.pathExtension.lowercased() == "pdf" {
+                        Task { @MainActor in
+                            await self.handlePDFImport(url: url)
                         }
-                        toastManager.show(.info, message: "Text loaded from file")
+                    } else {
+                        // Try to read as text file
+                        guard let fileContent = try? String(contentsOf: url, encoding: .utf8) else { return }
+
+                        DispatchQueue.main.async {
+                            withAnimation(MurmurDesign.Animations.quick) {
+                                self.text = fileContent
+                            }
+                            self.toastManager.show(.info, message: "Text loaded from file")
+                        }
                     }
                 }
                 return true
@@ -798,6 +1024,56 @@ struct ContentView: View {
             }
         }
         return false
+    }
+
+    // MARK: - Document Import
+
+    private func showOpenPanel() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.message = "Select a PDF document to import"
+        panel.prompt = "Import"
+
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+
+            Task { @MainActor in
+                await handlePDFImport(url: url)
+            }
+        }
+    }
+
+    private func handlePDFImport(url: URL) async {
+        isImporting = true
+        toastManager.show(.info, message: "Importing PDF...")
+
+        do {
+            let result = try await documentImportService.importPDF(url: url)
+            importResult = result
+            showImportSheet = true
+            toastManager.dismiss()
+        } catch {
+            toastManager.showError(error.localizedDescription)
+        }
+
+        isImporting = false
+    }
+
+    private func addChunksToQueue(_ chunks: [String]) {
+        guard !chunks.isEmpty else { return }
+
+        batchQueueViewModel?.addBlocks(texts: chunks)
+
+        // Show queue panel
+        withAnimation(.spring(duration: 0.3)) {
+            showQueue = true
+            showInspector = true
+        }
+
+        toastManager.showSuccess("\(chunks.count) blocks added to queue")
     }
 
     private func stopGeneration() {
@@ -923,9 +1199,10 @@ struct QueuePanel: View {
 
 struct HistoryPanel: View {
     @ObservedObject var historyService: HistoryService
-    let audioPlayerService: AudioPlayerService
+    @ObservedObject var audioPlayerService: AudioPlayerService
     let onClose: () -> Void
     let onReuse: (GenerationRecord) -> Void
+    let onSelectRecord: (GenerationRecord) -> Void
 
     @State private var searchText = ""
 
@@ -992,7 +1269,8 @@ struct HistoryPanel: View {
                         ForEach(filteredRecords) { record in
                             HistoryRow(
                                 record: record,
-                                onPlay: { playRecord(record) },
+                                audioPlayerService: audioPlayerService,
+                                onSelect: { onSelectRecord(record) },
                                 onReuse: { onReuse(record) },
                                 onDelete: { historyService.deleteRecord(record) }
                             )
@@ -1017,78 +1295,84 @@ struct HistoryPanel: View {
             Spacer()
         }
     }
-
-    private func playRecord(_ record: GenerationRecord) {
-        do {
-            let samples = try historyService.loadAudio(for: record)
-            try audioPlayerService.loadAudio(samples: samples)
-            audioPlayerService.play()
-        } catch {
-            // Handle error silently
-        }
-    }
 }
 
 struct HistoryRow: View {
     let record: GenerationRecord
-    let onPlay: () -> Void
+    @ObservedObject var audioPlayerService: AudioPlayerService
+    let onSelect: () -> Void
     let onReuse: () -> Void
     let onDelete: () -> Void
 
     @State private var isHovered = false
 
+    private var isPlaying: Bool {
+        audioPlayerService.playingRecordId == record.id && audioPlayerService.isPlaying
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(record.textPreview)
-                .font(.subheadline)
-                .lineLimit(2)
-
-            HStack(spacing: 12) {
-                Label(record.voiceName, systemImage: "person.wave.2")
-                Label(record.formattedDuration, systemImage: "waveform")
-                Spacer()
-                Text(record.displayDate)
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
-            if isHovered {
-                HStack(spacing: 8) {
-                    Button(action: onPlay) {
-                        Label("Play", systemImage: "play.fill")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-
-                    Button(action: onReuse) {
-                        Label("Reuse", systemImage: "arrow.uturn.left")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+        Button(action: onSelect) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(record.textPreview)
+                        .font(.subheadline)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
 
                     Spacer()
 
-                    Button(action: onDelete) {
-                        Image(systemName: "trash")
+                    // Play indicator if this record is playing
+                    if isPlaying {
+                        Image(systemName: "speaker.wave.2.fill")
+                            .font(.caption)
+                            .foregroundStyle(MurmurDesign.Colors.voicePrimary)
+                            .symbolEffect(.variableColor.iterative, options: .repeating)
+                    } else {
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(.red)
                 }
-                .transition(.asymmetric(
-                    insertion: .move(edge: .top).combined(with: .opacity),
-                    removal: .opacity
-                ))
+
+                HStack(spacing: 12) {
+                    Label(record.voiceName, systemImage: "person.wave.2")
+                    Label(record.formattedDuration, systemImage: "waveform")
+                    Spacer()
+                    Text(record.displayDate)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
+            .padding(14)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(
+                        isPlaying ? MurmurDesign.Colors.voicePrimary.opacity(0.5) :
+                        (isHovered ? Color.accentColor.opacity(0.3) : .clear),
+                        lineWidth: isPlaying ? 2 : 1
+                    )
+            )
         }
-        .padding(14)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(isHovered ? Color.accentColor.opacity(0.3) : .clear, lineWidth: 1)
-        )
+        .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .animation(.spring(duration: 0.2), value: isHovered)
+        .animation(.spring(duration: 0.2), value: isPlaying)
+        .contextMenu {
+            Button(action: onSelect) {
+                Label("Open Player", systemImage: "play.circle")
+            }
+
+            Button(action: onReuse) {
+                Label("Reuse Text", systemImage: "arrow.uturn.left")
+            }
+
+            Divider()
+
+            Button(role: .destructive, action: onDelete) {
+                Label("Delete", systemImage: "trash")
+            }
+        }
     }
 }
 
