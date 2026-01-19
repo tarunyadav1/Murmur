@@ -8,7 +8,7 @@ struct FloatingAudioPlayer: View {
     let duration: TimeInterval
     let currentTime: TimeInterval
     let isPlaying: Bool
-    let samples: [Float]
+    let waveformData: [Float]  // Pre-computed waveform (60 bars)
     let generationTime: Double?
 
     let onPlay: () -> Void
@@ -23,6 +23,8 @@ struct FloatingAudioPlayer: View {
     @State private var dragOffset: CGSize = .zero
     @State private var savedPosition: CGSize = .zero
     @State private var showSuccessGlow = false
+
+    private let waveformBarCount = 60
 
     private var progress: Double {
         duration > 0 ? currentTime / duration : 0
@@ -55,6 +57,34 @@ struct FloatingAudioPlayer: View {
                 withAnimation { showSuccessGlow = false }
             }
         }
+    }
+
+    /// Static helper to compute waveform from samples (call this once when audio is generated)
+    static func computeWaveform(from samples: [Float], barCount: Int = 60) -> [Float] {
+        guard !samples.isEmpty else {
+            return Array(repeating: 0.15, count: barCount)
+        }
+
+        let chunkSize = max(1, samples.count / barCount)
+        var result: [Float] = []
+        result.reserveCapacity(barCount)
+
+        for i in 0..<barCount {
+            let start = i * chunkSize
+            let end = min(start + chunkSize, samples.count)
+            if start < samples.count {
+                var maxVal: Float = 0
+                for j in start..<end {
+                    let absVal = abs(samples[j])
+                    if absVal > maxVal { maxVal = absVal }
+                }
+                result.append(max(0.08, min(1.0, maxVal * 2.2)))
+            } else {
+                result.append(0.08)
+            }
+        }
+
+        return result
     }
 
     // MARK: - Minimized Player
@@ -270,14 +300,15 @@ struct FloatingAudioPlayer: View {
 
     private var waveformView: some View {
         GeometryReader { geometry in
-            let barCount = 60
-            let barWidth = geometry.size.width / CGFloat(barCount)
-            let reducedSamples = reduceSamples(samples, to: barCount)
+            let barWidth = geometry.size.width / CGFloat(waveformBarCount)
+            let bars = waveformData.isEmpty
+                ? Array(repeating: Float(0.15), count: waveformBarCount)
+                : waveformData
 
             HStack(spacing: 2) {
-                ForEach(0..<barCount, id: \.self) { index in
-                    let height = CGFloat(reducedSamples[index]) * geometry.size.height
-                    let barProgress = Double(index) / Double(barCount)
+                ForEach(0..<waveformBarCount, id: \.self) { index in
+                    let height = CGFloat(bars[safe: index] ?? 0.15) * geometry.size.height
+                    let barProgress = Double(index) / Double(waveformBarCount)
                     let isPast = barProgress < progress
 
                     RoundedRectangle(cornerRadius: 2)
@@ -309,29 +340,6 @@ struct FloatingAudioPlayer: View {
         return String(format: "%d:%02d", minutes, seconds)
     }
 
-    private func reduceSamples(_ samples: [Float], to count: Int) -> [Float] {
-        guard !samples.isEmpty else {
-            return Array(repeating: 0.15, count: count)
-        }
-
-        let chunkSize = max(1, samples.count / count)
-        var result: [Float] = []
-
-        for i in 0..<count {
-            let start = i * chunkSize
-            let end = min(start + chunkSize, samples.count)
-            if start < samples.count {
-                let chunk = samples[start..<end]
-                let maxVal = chunk.map { abs($0) }.max() ?? 0
-                result.append(max(0.08, min(1.0, maxVal * 2.2)))
-            } else {
-                result.append(0.08)
-            }
-        }
-
-        return result
-    }
-
     // MARK: - Drag Provider
 
     private var audioFileProvider: some Transferable {
@@ -351,6 +359,14 @@ struct AudioDragItem: Transferable {
     }
 }
 
+// MARK: - Safe Array Access
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
+}
+
 // MARK: - Preview
 
 #Preview {
@@ -360,7 +376,7 @@ struct AudioDragItem: Transferable {
             duration: 45.5,
             currentTime: 12.3,
             isPlaying: true,
-            samples: (0..<100).map { _ in Float.random(in: 0...1) },
+            waveformData: (0..<60).map { _ in Float.random(in: 0.1...0.9) },
             generationTime: 2.4,
             onPlay: {},
             onPause: {},

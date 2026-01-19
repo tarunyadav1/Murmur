@@ -23,6 +23,12 @@ final class BatchQueueViewModel: ObservableObject {
         blocks.append(block)
     }
 
+    func addBlocks(texts: [String]) {
+        for text in texts {
+            addBlock(text: text)
+        }
+    }
+
     func removeBlock(id: UUID) {
         blocks.removeAll { $0.id == id }
     }

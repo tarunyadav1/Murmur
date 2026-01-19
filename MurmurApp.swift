@@ -85,6 +85,13 @@ struct MurmurApp: App {
                 // Remove New Window command
             }
 
+            CommandGroup(after: .newItem) {
+                Button("Open Document...") {
+                    NotificationCenter.default.post(name: .openDocument, object: nil)
+                }
+                .keyboardShortcut("o", modifiers: .command)
+            }
+
             CommandGroup(after: .appSettings) {
                 Divider()
             }
@@ -182,4 +189,5 @@ struct MurmurApp: App {
 
 extension Notification.Name {
     static let generateSpeech = Notification.Name("generateSpeech")
+    static let openDocument = Notification.Name("openDocument")
 }

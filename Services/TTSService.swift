@@ -354,6 +354,103 @@ final class TTSService: ObservableObject {
         }
     }
 
+    // MARK: - Chunked Generation for Long Documents
+
+    /// Generate audio for multiple text chunks and combine into single output
+    /// - Parameters:
+    ///   - chunks: Array of text chunks to generate
+    ///   - voice: Voice to use (optional, uses selected voice if nil)
+    ///   - speed: Speech speed
+    ///   - voiceSettings: Voice settings
+    ///   - onProgress: Progress callback (chunkIndex, totalChunks)
+    /// - Returns: Combined audio samples
+    func generateChunked(
+        chunks: [String],
+        voice: Voice? = nil,
+        speed: Float = 1.0,
+        voiceSettings: VoiceSettings = .default,
+        onProgress: ((Int, Int) -> Void)? = nil
+    ) async throws -> [Float] {
+        guard isModelLoaded else {
+            throw TTSError.modelNotLoaded
+        }
+
+        guard !chunks.isEmpty else {
+            return []
+        }
+
+        isGenerating = true
+        lastError = nil
+
+        defer {
+            Task { @MainActor in
+                self.isGenerating = false
+            }
+        }
+
+        var allSamples: [Float] = []
+        let totalChunks = chunks.count
+
+        // Add small silence between chunks (0.3 seconds)
+        let silenceSamples = [Float](repeating: 0, count: Int(0.3 * Float(TTSService.sampleRate)))
+
+        for (index, chunk) in chunks.enumerated() {
+            // Check for cancellation
+            try Task.checkCancellation()
+
+            // Report progress
+            await MainActor.run {
+                onProgress?(index, totalChunks)
+            }
+
+            let trimmedChunk = chunk.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedChunk.isEmpty else { continue }
+
+            logger.info("Generating chunk \(index + 1)/\(totalChunks): \"\(trimmedChunk.prefix(30))...\"")
+
+            do {
+                let samples = try await generate(
+                    text: trimmedChunk,
+                    voice: voice,
+                    speed: speed,
+                    voiceSettings: VoiceSettings(
+                        emotionEnergy: voiceSettings.emotionEnergy,
+                        voiceMatchStrength: voiceSettings.voiceMatchStrength,
+                        pacing: voiceSettings.pacing,
+                        fadeOutLength: 0 // Don't fade individual chunks
+                    )
+                )
+
+                allSamples.append(contentsOf: samples)
+
+                // Add silence between chunks (except after last chunk)
+                if index < totalChunks - 1 {
+                    allSamples.append(contentsOf: silenceSamples)
+                }
+
+            } catch {
+                logger.error("Failed to generate chunk \(index + 1): \(error.localizedDescription)")
+                throw error
+            }
+        }
+
+        // Apply fade-out to the final combined audio
+        let finalSamples = applyFadeOut(
+            to: allSamples,
+            fadeLength: voiceSettings.fadeOutLength,
+            sampleRate: TTSService.sampleRate
+        )
+
+        // Report completion
+        await MainActor.run {
+            onProgress?(totalChunks, totalChunks)
+        }
+
+        logger.info("Generated combined audio: \(finalSamples.count) samples (\(String(format: "%.1f", Double(finalSamples.count) / Double(TTSService.sampleRate)))s)")
+
+        return finalSamples
+    }
+
     // MARK: - Audio Processing
 
     private func extractSamplesFromWAV(_ data: Data) throws -> [Float] {
